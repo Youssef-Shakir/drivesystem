@@ -46,7 +46,8 @@ audio:
   default_volumes:
     outdoor_mic: 1.3  # bumped from 1.0 - customer's voice was coming through quiet
     outdoor_speaker: 0.8
-    headset: 1.0
+    headset: 1.0      # staff's ears only (what plays into the headset)
+    indoor_mic: 1.0    # staff's mic only (what the headset picks up from staff)
 
   # Audio mode: "full_duplex" or "ptt" (push-to-talk)
   default_mode: "full_duplex"

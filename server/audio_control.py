@@ -52,11 +52,14 @@ class AudioController:
             "outdoor_mic": 1.0,
             "outdoor_speaker": 0.8,
             "headset": 1.0,
+            "indoor_mic": 1.0,
         }
+        self.volumes.setdefault("indoor_mic", 1.0)
         self.muted: dict[str, bool] = {
             "outdoor_mic": False,
             "outdoor_speaker": False,
             "headset": False,
+            "indoor_mic": False,
         }
         self.mode: AudioMode = AudioMode.FULL_DUPLEX
         self.ptt_active: bool = False
@@ -89,10 +92,35 @@ class AudioController:
             logger.error(f"Command not found: {cmd[0]}")
             raise
 
+    def _cached_id_still_valid(self, node_name: str, node_id: int) -> bool:
+        """
+        Confirm a cached node ID still actually refers to node_name.
+
+        PipeWire reassigns IDs from scratch on every PipeWire/WirePlumber
+        restart, so a cached ID from before a restart can silently end up
+        pointing at a completely different live node afterwards (e.g. the
+        outdoor speaker instead of the outdoor mic) - and a volume/mute call
+        would then silently hit the wrong device with no error at all. This
+        is a cheap single-object check (not a full pw-dump) done before
+        trusting a cached ID.
+        """
+        try:
+            result = self._run_command(["pw-cli", "info", str(node_id)], check=True)
+            return f'node.name = "{node_name}"' in result.stdout
+        except Exception:
+            return False
+
     def _get_node_id(self, node_name: str, retries: int = 3) -> Optional[int]:
         """Get PipeWire node ID by name using pw-dump."""
         if node_name in self._node_ids:
-            return self._node_ids[node_name]
+            cached_id = self._node_ids[node_name]
+            if cached_id is None or self._cached_id_still_valid(node_name, cached_id):
+                return cached_id
+            logger.warning(
+                f"Cached node ID {cached_id} for {node_name} no longer matches "
+                f"(PipeWire/WirePlumber likely restarted) - re-resolving by name"
+            )
+            del self._node_ids[node_name]
 
         for attempt in range(retries):
             try:
@@ -181,15 +209,27 @@ class AudioController:
         return False
 
     def set_headset_volume(self, volume: float) -> bool:
-        """Set headset volume (affects both sink and source)."""
-        success = True
-        if self.headset_sink_node:
-            success = self._set_volume(self.headset_sink_node, volume) and success
-        if self.headset_source_node:
-            success = self._set_volume(self.headset_source_node, volume) and success
-        if success:
+        """
+        Set headset volume - the staff's EARS only (headset_sink_node, i.e.
+        what plays into the headset). This is deliberately independent of
+        the staff's mic (see set_indoor_mic_volume) - they used to be
+        bundled together under one "headset" control, which meant turning
+        down how loud the customer sounded in the headset also silently
+        turned down how loud the staff's own voice went out to the
+        customer. Split so each control only touches the one device it's
+        labeled for.
+        """
+        if self._set_volume(self.headset_sink_node, volume):
             self.volumes["headset"] = volume
-        return success
+            return True
+        return False
+
+    def set_indoor_mic_volume(self, volume: float) -> bool:
+        """Set indoor mic volume - the staff headset's MIC only (headset_source_node)."""
+        if self._set_volume(self.headset_source_node, volume):
+            self.volumes["indoor_mic"] = volume
+            return True
+        return False
 
     def set_volume(self, device: str, volume: float) -> bool:
         """Set volume for a named device."""
@@ -201,6 +241,8 @@ class AudioController:
             return self.set_outdoor_speaker_volume(volume)
         elif device == "headset":
             return self.set_headset_volume(volume)
+        elif device == "indoor_mic":
+            return self.set_indoor_mic_volume(volume)
         else:
             logger.warning(f"Unknown device: {device}")
             return False
@@ -212,11 +254,11 @@ class AudioController:
         elif device == "outdoor_speaker":
             success = self._set_mute(self.outdoor_speaker_node, muted)
         elif device == "headset":
-            success = True
-            if self.headset_sink_node:
-                success = self._set_mute(self.headset_sink_node, muted) and success
-            if self.headset_source_node:
-                success = self._set_mute(self.headset_source_node, muted) and success
+            # Sink only (staff's ears) - see set_headset_volume's docstring
+            # for why this no longer also touches the mic side.
+            success = self._set_mute(self.headset_sink_node, muted)
+        elif device == "indoor_mic":
+            success = self._set_mute(self.headset_source_node, muted)
         else:
             logger.warning(f"Unknown device: {device}")
             return False

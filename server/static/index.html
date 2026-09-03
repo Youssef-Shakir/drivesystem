@@ -1162,6 +1162,15 @@
                     </div>
                     <span id="meter-val-headset" class="meter-value">-∞ dB</span>
                 </div>
+                <div class="meter-row">
+                    <span class="meter-label">Indoor Mic</span>
+                    <div class="meter-container">
+                        <div id="meter-indoor-mic" class="meter-bar" style="width: 0%">
+                            <div class="meter-peak"></div>
+                        </div>
+                    </div>
+                    <span id="meter-val-indoor-mic" class="meter-value">-∞ dB</span>
+                </div>
             </div>
         </div>
     </div>
@@ -1450,6 +1459,22 @@
                        oninput="updateVolume('headset', this.value)">
             </div>
 
+            <div class="volume-control">
+                <div class="volume-header">
+                    <span class="volume-label">
+                        <button id="mute-indoor-mic" class="mute-btn" onclick="toggleMute('indoor_mic')">&#128266;</button>
+                        Indoor Mic
+                    </span>
+                    <span id="vol-indoor-mic-value" class="volume-value">100%</span>
+                </div>
+                <input type="range" id="vol-indoor-mic" class="volume-slider"
+                       min="0" max="150" value="100"
+                       oninput="updateVolume('indoor_mic', this.value)">
+                <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px;">
+                    Staff's mic (what the headset picks up) - separate from "Headset" above, which is only what plays into the staff's ears.
+                </div>
+            </div>
+
             <div id="test-audio-status" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; min-height: 1em;"></div>
         </div>
     </div>
@@ -1565,9 +1590,9 @@
         let carArrivedAt = null;
         let waitingTimeInterval = null;
         let distanceHistory = [];
-        let audioLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
-        let peakLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
-        let peakHoldTime = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
+        let audioLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0, indoor_mic: 0 };
+        let peakLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0, indoor_mic: 0 };
+        let peakHoldTime = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0, indoor_mic: 0 };
         let distanceCanvas, distanceCtx;
         const MAX_DISTANCE_HISTORY = 60;
         let currentMinCm = 50;
@@ -2032,6 +2057,7 @@
                 updateVolumeSlider('outdoor_mic', state.volumes.outdoor_mic);
                 updateVolumeSlider('outdoor_speaker', state.volumes.outdoor_speaker);
                 updateVolumeSlider('headset', state.volumes.headset);
+                updateVolumeSlider('indoor_mic', state.volumes.indoor_mic);
             }
 
             // Mute states
@@ -2039,6 +2065,7 @@
                 updateMuteButton('outdoor_mic', state.muted.outdoor_mic);
                 updateMuteButton('outdoor_speaker', state.muted.outdoor_speaker);
                 updateMuteButton('headset', state.muted.headset);
+                updateMuteButton('indoor_mic', state.muted.indoor_mic);
             }
 
             currentState = state;
@@ -2048,7 +2075,8 @@
             const sliderMap = {
                 'outdoor_mic': 'vol-mic',
                 'outdoor_speaker': 'vol-speaker',
-                'headset': 'vol-headset'
+                'headset': 'vol-headset',
+                'indoor_mic': 'vol-indoor-mic'
             };
             const sliderId = sliderMap[device];
             if (!sliderId) return;
@@ -2084,7 +2112,7 @@
                 levels = {};
             }
 
-            const devices = ['outdoor_mic', 'outdoor_speaker', 'headset'];
+            const devices = ['outdoor_mic', 'outdoor_speaker', 'headset', 'indoor_mic'];
             devices.forEach(device => {
                 const muted = currentState?.muted?.[device] || false;
                 const raw = levels[device] || { peak: 0, rms: 0 };
@@ -2420,7 +2448,8 @@
             const displayMap = {
                 'outdoor_mic': 'vol-mic-value',
                 'outdoor_speaker': 'vol-speaker-value',
-                'headset': 'vol-headset-value'
+                'headset': 'vol-headset-value',
+                'indoor_mic': 'vol-indoor-mic-value'
             };
             document.getElementById(displayMap[device]).textContent = `${value}%`;
 

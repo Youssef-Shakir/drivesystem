@@ -302,6 +302,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "outdoor_mic": config.outdoor_mic_node,
         "outdoor_speaker": config.outdoor_speaker_node,
         "headset": config.headset_sink_node,
+        "indoor_mic": config.headset_source_node,
     })
     logger.info("Level meters started")
 
@@ -430,7 +431,7 @@ async def get_stats():
 async def set_volume(update: VolumeUpdate):
     """Set volume for a device."""
     audio = get_audio_controller()
-    if update.device not in ("outdoor_mic", "outdoor_speaker", "headset"):
+    if update.device not in ("outdoor_mic", "outdoor_speaker", "headset", "indoor_mic"):
         raise HTTPException(status_code=400, detail=f"Unknown device: {update.device}")
 
     success = audio.set_volume(update.device, update.volume)
@@ -444,7 +445,7 @@ async def set_volume(update: VolumeUpdate):
 async def set_mute(update: MuteUpdate):
     """Set mute state for a device."""
     audio = get_audio_controller()
-    if update.device not in ("outdoor_mic", "outdoor_speaker", "headset"):
+    if update.device not in ("outdoor_mic", "outdoor_speaker", "headset", "indoor_mic"):
         raise HTTPException(status_code=400, detail=f"Unknown device: {update.device}")
 
     success = audio.set_mute(update.device, update.muted)
@@ -511,6 +512,7 @@ async def refresh_audio():
         "outdoor_mic": audio.outdoor_mic_node,
         "outdoor_speaker": audio.outdoor_speaker_node,
         "headset": audio.headset_sink_node,
+        "indoor_mic": audio.headset_source_node,
     })
     return {"status": "ok"}
 
@@ -870,7 +872,11 @@ async def bluetooth_connect(request: BluetoothMacRequest):
     audio.headset_source_node = config.headset_source_node
     audio.refresh_node_ids()
     audio.set_headset_volume(audio.volumes.get("headset", 1.0))
-    get_level_meter().update_targets({"headset": audio.headset_sink_node})
+    audio.set_indoor_mic_volume(audio.volumes.get("indoor_mic", 1.0))
+    get_level_meter().update_targets({
+        "headset": audio.headset_sink_node,
+        "indoor_mic": audio.headset_source_node,
+    })
 
     return {
         "status": "connected",

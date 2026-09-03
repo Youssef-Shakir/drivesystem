@@ -107,11 +107,17 @@ class Config:
 
     @property
     def default_volumes(self) -> dict[str, float]:
-        return self._data.get("audio", {}).get("default_volumes", {
+        defaults = {
             "outdoor_mic": 1.0,
             "outdoor_speaker": 0.8,
             "headset": 1.0,
-        })
+            "indoor_mic": 1.0,
+        }
+        # Merge rather than replace, so a config.yaml written before
+        # indoor_mic existed still gets a sane default for it instead of a
+        # missing key.
+        defaults.update(self._data.get("audio", {}).get("default_volumes", {}))
+        return defaults
 
     @property
     def default_audio_mode(self) -> str:
