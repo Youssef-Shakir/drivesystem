@@ -7,6 +7,9 @@ __pycache__/
 # Runtime data (not source)
 drivethru.db
 *.log
+logs/
+recordings/
+.session_secret
 
 # Editor/OS cruft
 .DS_Store

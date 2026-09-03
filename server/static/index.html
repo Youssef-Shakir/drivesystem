@@ -996,6 +996,7 @@
         <h1>Drive-Thru<span class="header-credit">by Yousif Shakir - www.donialink.com</span></h1>
         <div class="header-actions">
             <button class="icon-btn" onclick="toggleSettings()" title="Settings">&#9881;</button>
+            <button class="icon-btn" onclick="logout()" title="Lock">&#128274;</button>
         </div>
     </div>
 
@@ -1580,6 +1581,40 @@
                 Refresh Audio Devices
             </button>
         </div>
+
+        <div class="settings-section">
+            <h3>Mic Tuning Recording</h3>
+            <div class="device-item">
+                <div class="info-row">
+                    <span class="info-label">Status</span>
+                    <span id="rec-status" class="info-value">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Ends</span>
+                    <span id="rec-ends" class="info-value">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Files (raw / filtered)</span>
+                    <span id="rec-files" class="info-value">-</span>
+                </div>
+                <div id="rec-error" style="font-size: 0.7rem; color: var(--accent); margin-top: 4px;"></div>
+            </div>
+            <div class="device-item" style="display: flex; gap: 8px;">
+                <button class="icon-btn" style="flex: 1;" onclick="startRecording()">Start New</button>
+                <button class="icon-btn" style="flex: 1;" onclick="stopRecording()">Stop</button>
+            </div>
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px;">
+                Captures pure (pre-filter) and filtered outdoor-mic audio to <code>recordings/</code> for later AI-assisted tuning.
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h3>Diagnostics Log</h3>
+            <div class="device-item">
+                <button class="icon-btn" style="width: 100%;" onclick="loadLogs()">Refresh Log</button>
+            </div>
+            <pre id="log-view" style="font-size: 0.65rem; max-height: 200px; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border); padding: 6px; white-space: pre-wrap; word-break: break-all; margin: 6px 0 0;"></pre>
+        </div>
     </div>
 
     <script>
@@ -1609,6 +1644,10 @@
                     options.body = JSON.stringify(body);
                 }
                 const response = await fetch(`/api${endpoint}`, options);
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    throw new Error('Session expired');
+                }
                 if (!response.ok) {
                     let detail = `HTTP ${response.status}`;
                     try {
@@ -1641,6 +1680,79 @@
 
             if (panel.classList.contains('visible')) {
                 loadSettings();
+                loadRecordingStatus();
+                loadLogs();
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+            } finally {
+                window.location.href = '/login';
+            }
+        }
+
+        function formatRemaining(sec) {
+            if (!sec || sec <= 0) return '0h';
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            return `${h}h ${m}m left`;
+        }
+
+        async function loadRecordingStatus() {
+            try {
+                const s = await api('GET', '/recording/status');
+                const statusEl = document.getElementById('rec-status');
+                const endsEl = document.getElementById('rec-ends');
+                const filesEl = document.getElementById('rec-files');
+                const errEl = document.getElementById('rec-error');
+
+                if (!s.configured) {
+                    statusEl.textContent = 'Not configured';
+                    endsEl.textContent = '-';
+                    filesEl.textContent = '-';
+                    errEl.textContent = '';
+                    return;
+                }
+
+                statusEl.textContent = s.running ? `Recording (${formatRemaining(s.remaining_sec)})` : 'Stopped';
+                endsEl.textContent = s.ends_at ? new Date(s.ends_at).toLocaleString() : '-';
+                const f = s.files_written || {};
+                filesEl.textContent = `${f.raw || 0} / ${f.filtered || 0}`;
+                errEl.textContent = s.last_error ? `Last error: ${s.last_error}` : '';
+            } catch (e) {
+                console.error('Failed to load recording status:', e);
+            }
+        }
+
+        async function startRecording() {
+            try {
+                await api('POST', '/recording/start');
+                await loadRecordingStatus();
+            } catch (e) {
+                alert(`Failed to start recording: ${e.message}`);
+            }
+        }
+
+        async function stopRecording() {
+            if (!confirm('Stop the tuning recording? This discards the ability to resume this window later.')) return;
+            try {
+                await api('POST', '/recording/stop');
+                await loadRecordingStatus();
+            } catch (e) {
+                alert(`Failed to stop recording: ${e.message}`);
+            }
+        }
+
+        async function loadLogs() {
+            try {
+                const result = await api('GET', '/logs?lines=200');
+                const view = document.getElementById('log-view');
+                view.textContent = (result.lines || []).join('\n') || '(no log entries yet)';
+                view.scrollTop = view.scrollHeight;
+            } catch (e) {
+                console.error('Failed to load logs:', e);
             }
         }
 

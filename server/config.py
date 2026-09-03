@@ -106,6 +106,12 @@ class Config:
         return self._data.get("audio", {}).get("headset_source", "")
 
     @property
+    def raw_outdoor_mic_node(self) -> str:
+        """Pre-AEC/pre-filter outdoor mic hardware input - used only by the
+        tuning recorder (recordings/raw/), not part of the live call path."""
+        return self._data.get("audio", {}).get("raw_outdoor_mic", "")
+
+    @property
     def default_volumes(self) -> dict[str, float]:
         defaults = {
             "outdoor_mic": 1.0,
@@ -189,6 +195,16 @@ class Config:
         text = _replace("headset_source", source, text)
         self._config_path.write_text(text)
         self.reload()
+
+    # Security
+    @property
+    def dashboard_pin(self) -> str:
+        return str(self._data.get("security", {}).get("pin", "2620"))
+
+    # Tuning recorder
+    @property
+    def recording_duration_hours(self) -> float:
+        return self._data.get("recording", {}).get("duration_hours", 48.0)
 
     # Database settings
     @property

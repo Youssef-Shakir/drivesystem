@@ -11,15 +11,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import bluetooth_control
+from . import auth, bluetooth_control
 from .audio_control import AudioController, get_audio_controller, init_audio_controller
 from .config import Config, get_config, init_config
 from .database import Database, get_database, init_database
 from .level_meter import get_level_meter, init_level_meter
+from .logging_setup import read_recent_log_lines, setup_logging
 from .models import (
     AudioMode,
     BluetoothMacRequest,
@@ -37,13 +38,12 @@ from .models import (
     VolumeUpdate,
 )
 from .presence_filter import PresenceFilter
+from .recorder import get_recorder, init_recorder
 from .serial_listener import SerialListener, init_serial_listener
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging (console + a rotating logs/drivethru.log file for
+# later diagnosis without needing journalctl)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Global state
@@ -306,6 +306,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     })
     logger.info("Level meters started")
 
+    # Tuning recorder - records raw (pre-AEC) + filtered (post-denoise)
+    # outdoor mic audio to recordings/ for offline AI-assisted tuning. Only
+    # starts if raw_outdoor_mic is actually configured. Resumes the
+    # original window across a restart rather than restarting the clock.
+    if config.raw_outdoor_mic_node:
+        recorder = init_recorder(
+            raw_node=config.raw_outdoor_mic_node,
+            duration_hours=config.recording_duration_hours,
+        )
+        started = await recorder.start(resume=True)
+        if not started:
+            started = await recorder.start(resume=False)
+        if started:
+            logger.info(f"Tuning recording active until {recorder.end_at.isoformat()}")
+    else:
+        logger.warning("raw_outdoor_mic not configured - tuning recorder disabled")
+
     # Voice detection (Silero VAD) and the outdoor-speaker hardware bridge
     # are disabled - rolled back per user request after audio quality
     # regressed and neither of the above fixed it. See git history /
@@ -349,6 +366,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if serial_listener:
         serial_listener.stop()
     get_level_meter().stop()
+    if get_recorder():
+        # Keep state.json so a plain service restart resumes the same
+        # 48h window instead of restarting the clock.
+        await get_recorder().stop(clear_state=False)
 
 
 app = FastAPI(
@@ -366,6 +387,60 @@ if assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+# --- PIN gate ---
+# Everything except /login requires a valid session cookie. API requests
+# get a plain 401 (so the dashboard's fetch() calls fail cleanly); page
+# requests get bounced to the login form.
+_PUBLIC_PATHS = {"/login"}
+
+
+@app.middleware("http")
+async def pin_gate(request: Request, call_next):
+    if request.url.path in _PUBLIC_PATHS:
+        return await call_next(request)
+    token = request.cookies.get(auth.SESSION_COOKIE)
+    if not auth.verify_session_token(token):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+    return await call_next(request)
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_form():
+    return auth.login_page_html()
+
+
+@app.post("/login")
+async def login_submit(request: Request, pin: str = Form(...)):
+    client_ip = request.client.host if request.client else "unknown"
+    if auth.is_rate_limited(client_ip):
+        return HTMLResponse(auth.login_page_html("Too many attempts - wait a minute and try again."), status_code=429)
+
+    config = get_config()
+    if not auth.verify_pin(pin, config.dashboard_pin):
+        auth.record_attempt(client_ip)
+        logger.warning(f"Failed dashboard login attempt from {client_ip}")
+        return HTMLResponse(auth.login_page_html("Wrong PIN."), status_code=401)
+
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        auth.make_session_token(),
+        max_age=auth.SESSION_MAX_AGE_SEC,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.post("/logout")
+async def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.SESSION_COOKIE)
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -521,6 +596,45 @@ async def refresh_audio():
 async def get_audio_levels():
     """Get real-time peak/RMS levels for the outdoor mic, outdoor speaker, and headset."""
     return get_level_meter().get_levels()
+
+
+@app.get("/api/recording/status")
+async def get_recording_status():
+    """Status of the raw+filtered outdoor-mic tuning recorder."""
+    recorder = get_recorder()
+    if not recorder:
+        return {"running": False, "configured": False}
+    return {**recorder.status(), "configured": True}
+
+
+@app.post("/api/recording/start")
+async def start_recording():
+    """Start a fresh tuning-recording window (e.g. to kick off another
+    multi-day capture after a previous one finished)."""
+    recorder = get_recorder()
+    if not recorder:
+        raise HTTPException(status_code=400, detail="Recorder not configured - set audio.raw_outdoor_mic in config.yaml")
+    started = await recorder.start(resume=False)
+    if not started:
+        raise HTTPException(status_code=409, detail="Already recording")
+    return recorder.status()
+
+
+@app.post("/api/recording/stop")
+async def stop_recording():
+    """Stop the tuning recorder early and discard its resume state."""
+    recorder = get_recorder()
+    if not recorder:
+        raise HTTPException(status_code=400, detail="Recorder not configured")
+    await recorder.stop(clear_state=True)
+    return {"status": "ok"}
+
+
+@app.get("/api/logs")
+async def get_logs(lines: int = 200):
+    """Recent lines from logs/drivethru.log, for on-dashboard diagnosis."""
+    lines = max(1, min(lines, 2000))
+    return {"lines": read_recent_log_lines(lines)}
 
 
 @app.get("/api/settings")
