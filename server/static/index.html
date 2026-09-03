@@ -1,0 +1,2590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Drive-Thru Intercom System - Yousif Shakir</title>
+    <style>
+        :root {
+            /* Windows XP Luna palette - matched to gui/theme.py so the web
+               dashboard and the desktop GUI look like the same product. */
+            --bg-primary: #ECE9D8;
+            --bg-secondary: #D4D0C8;
+            --bg-card: #FFFFFF;
+            --bg-hover: #E8E8FF;
+            --accent: #CC0000;
+            --accent-green: #3C9A36;
+            --accent-yellow: #FFCC00;
+            --accent-blue: #0054E3;
+            --text-primary: #000000;
+            --text-secondary: #4A4A4A;
+            --border: #808080;
+            --border-radius: 0px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Tahoma", "Segoe UI", Verdana, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 120px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: linear-gradient(180deg, #0058EE 0%, #3A6EA5 8%, #0054E3 50%, #003399 92%, #002266 100%);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px 8px 3px 3px;
+            border: 1px solid #002266;
+        }
+
+        .header h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            font-family: "Trebuchet MS", "Tahoma", sans-serif;
+            text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.4);
+        }
+
+        .header-credit {
+            display: block;
+            font-size: 0.65rem;
+            font-weight: 400;
+            opacity: 0.85;
+            text-shadow: none;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F0F0F0 40%, #E0E0E0 50%, #C8C8C8 100%);
+            border: 2px outset #D4D0C8;
+            border-radius: 3px;
+            padding: 7px 12px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: none;
+        }
+
+        .icon-btn:hover {
+            background: linear-gradient(180deg, #FFFFFF 0%, #E8E8FF 40%, #D8D8F0 50%, #C0C0E0 100%);
+            border-color: #8080C0;
+        }
+
+        .icon-btn:active {
+            background: linear-gradient(180deg, #C8C8C8 0%, #E0E0E0 50%, #F0F0F0 100%);
+            border-style: inset;
+        }
+
+        .icon-btn.active {
+            background: linear-gradient(180deg, #6699FF 0%, #3366DD 40%, #0054E3 50%, #003399 100%);
+            border-color: #3366DD;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 2px groove var(--border);
+            border-radius: var(--border-radius);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 0.75rem;
+            color: var(--xp-blue-dark, #0A246A);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 700;
+        }
+
+        .badge {
+            font-size: 0.625rem;
+            padding: 3px 9px;
+            border-radius: 2px;
+            text-transform: uppercase;
+            font-weight: 700;
+            border: 1px outset;
+        }
+
+        .badge.online { background: linear-gradient(180deg, #00CC00, #009900); border-color: #009900; color: #fff; }
+        .badge.offline { background: linear-gradient(180deg, #FF6666, #CC0000); border-color: #990000; color: #fff; }
+        .badge.unknown { background: linear-gradient(180deg, #FFCC00, #CC9900); border-color: #CC9900; color: #000; }
+
+        /* Lane Status */
+        .lane-status {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .lane-indicator {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .lane-indicator.empty {
+            background: var(--bg-secondary);
+            border: 3px solid var(--border);
+        }
+
+        .lane-indicator.car-present {
+            background: linear-gradient(135deg, var(--accent) 0%, #ff6b6b 100%);
+            border: none;
+            box-shadow: 0 0 30px rgba(204, 0, 0, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .lane-text {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .waiting-time {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-top: 8px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 16px 8px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-label {
+            font-size: 0.625rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Live Audio Meters */
+        .audio-meters {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .meter-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .meter-label {
+            width: 80px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .vad-tuning {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
+            margin-top: 4px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .vad-tuning-field {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .vad-tuning-field input {
+            width: 64px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-primary);
+            padding: 4px 6px;
+            font-size: 0.75rem;
+        }
+
+        .vad-tuning-hint {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            opacity: 0.75;
+        }
+
+        .meter-container {
+            flex: 1;
+            height: 24px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .meter-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-yellow) 70%, var(--accent) 90%);
+            border-radius: 2px;
+            transition: width 0.1s ease;
+            position: relative;
+        }
+
+        .meter-peak {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--text-primary);
+            transition: right 0.05s ease;
+        }
+
+        .meter-value {
+            width: 45px;
+            text-align: right;
+            font-size: 0.75rem;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-secondary);
+        }
+
+        /* Volume Controls */
+        .volume-control {
+            margin-bottom: 20px;
+        }
+
+        .volume-control:last-child {
+            margin-bottom: 0;
+        }
+
+        .volume-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .volume-label {
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .volume-label .mute-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 1rem;
+            transition: color 0.2s;
+        }
+
+        .volume-label .mute-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .volume-label .mute-btn.muted {
+            color: var(--accent);
+        }
+
+        .volume-value {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            min-width: 45px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .slider-container {
+            position: relative;
+            height: 8px;
+        }
+
+        .volume-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 3px;
+            background: linear-gradient(180deg, #808080 0%, #C0C0C0 30%, #FFFFFF 100%);
+            border: 1px inset var(--border);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 20px;
+            border-radius: 3px;
+            background: linear-gradient(180deg, #FFFFFF 0%, #F0F0F0 40%, #E0E0E0 50%, #C8C8C8 100%);
+            border: 2px outset #D4D0C8;
+            cursor: pointer;
+        }
+
+        /* Mode Toggle */
+        .mode-toggle {
+            display: flex;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            padding: 4px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 2px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: linear-gradient(180deg, #6699FF 0%, #3366DD 40%, #0054E3 50%, #003399 100%);
+            border-color: #3366DD;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Settings Panel */
+        .settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .settings-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 100%;
+            max-width: 400px;
+            height: 100%;
+            background: var(--bg-primary);
+            border-left: 2px solid var(--border);
+            box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);
+            z-index: 101;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .settings-panel.visible {
+            right: 0;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .settings-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .settings-section {
+            margin-bottom: 24px;
+        }
+
+        .settings-section h3 {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .device-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .device-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .device-name {
+            font-size: 0.875rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            word-break: break-all;
+            color: var(--accent-blue);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .info-value {
+            font-size: 0.875rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Distance Chart */
+        .distance-chart {
+            height: 60px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            padding: 8px;
+            margin-top: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .distance-chart canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .distance-display {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            font-size: 1.25rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .threshold-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed var(--accent);
+            opacity: 0.5;
+        }
+
+        /* PTT Button */
+        .ptt-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px;
+            background: linear-gradient(transparent, var(--bg-primary) 30%);
+        }
+
+        .ptt-button {
+            width: 100%;
+            padding: 18px;
+            border: none;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            touch-action: manipulation;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .ptt-button.inactive {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F0F0F0 40%, #E0E0E0 50%, #C8C8C8 100%);
+            color: var(--text-primary);
+            border: 2px outset #D4D0C8;
+        }
+
+        .ptt-button.active {
+            background: linear-gradient(180deg, #FF6666 0%, #DD3333 40%, #CC0000 50%, #990000 100%);
+            color: #fff;
+            border: 2px inset #CC0000;
+            transform: scale(0.98);
+        }
+
+        .ptt-button.disabled {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 2px solid var(--border);
+            cursor: default;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 3px;
+            margin-bottom: 16px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 9px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 500;
+            font-family: inherit;
+            border-radius: 2px;
+            cursor: pointer;
+            transition: none;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(180deg, #FFFFFF 0%, #FFFFFF 100%);
+            border: 1px outset #D4D0C8;
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Connection status */
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .connection-dot.connected { background: var(--accent-green); }
+        .connection-dot.disconnected { background: var(--accent); }
+
+        /* Error banner */
+        .error-banner {
+            background: var(--accent);
+            color: white;
+            padding: 10px 16px;
+            text-align: center;
+            border-radius: 3px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+            display: none;
+        }
+
+        .error-banner.visible {
+            display: block;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        /* Audio Flow Diagram */
+        .flow-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .flow-section {
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            padding: 12px;
+        }
+
+        .flow-label {
+            font-size: 0.7rem;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .flow-path {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+        }
+
+        .flow-node {
+            flex-shrink: 0;
+            text-align: center;
+            padding: 8px;
+            border-radius: 3px;
+            min-width: 70px;
+            border: 2px solid var(--border);
+        }
+
+        .flow-node.source {
+            background: rgba(60, 154, 54, 0.15);
+            border-color: var(--accent-green);
+        }
+
+        .flow-node.sink {
+            background: rgba(204, 0, 0, 0.15);
+            border-color: var(--accent);
+        }
+
+        .flow-node.filter {
+            background: rgba(255, 204, 0, 0.15);
+            border-color: var(--accent-yellow);
+        }
+
+        .flow-node.virtual {
+            background: rgba(0, 84, 227, 0.15);
+            border-color: var(--accent-blue);
+        }
+
+        .flow-node.loopback {
+            background: rgba(139, 148, 158, 0.15);
+            border-color: var(--text-secondary);
+        }
+
+        .node-icon {
+            font-size: 1.25rem;
+            margin-bottom: 4px;
+        }
+
+        .node-name {
+            font-size: 0.65rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .node-detail {
+            font-size: 0.55rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 65px;
+        }
+
+        .node-filters {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 4px;
+        }
+
+        .filter-tag {
+            font-size: 0.5rem;
+            background: var(--accent-yellow);
+            color: #000;
+            padding: 1px 4px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .flow-arrow {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+
+        /* PipeWire Nodes List */
+        .pw-nodes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .pw-node-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            border-left: 3px solid var(--text-secondary);
+        }
+
+        .pw-node-item.sink {
+            border-left-color: var(--accent);
+        }
+
+        .pw-node-item.source {
+            border-left-color: var(--accent-green);
+        }
+
+        .pw-node-id {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            min-width: 30px;
+        }
+
+        .pw-node-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .pw-node-name {
+            font-size: 0.75rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            color: var(--accent-blue);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .pw-node-desc {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+        }
+
+        .pw-node-class {
+            font-size: 0.6rem;
+            padding: 2px 6px;
+            border-radius: 2px;
+            background: var(--bg-card);
+        }
+
+        /* Filter Controls */
+        .filter-control {
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .filter-control:last-of-type {
+            margin-bottom: 0;
+        }
+
+        .filter-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .filter-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .filter-toggle {
+            position: relative;
+            width: 36px;
+            height: 20px;
+        }
+
+        .filter-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-hover);
+            border-radius: 3px;
+            transition: 0.2s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+
+        .filter-toggle input:checked + .toggle-slider {
+            background: var(--accent-green);
+        }
+
+        .filter-toggle input:checked + .toggle-slider:before {
+            transform: translateX(16px);
+            background: white;
+        }
+
+        .filter-params {
+            padding-left: 46px;
+            transition: opacity 0.2s;
+        }
+
+        .filter-params.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .param-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .param-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            min-width: 70px;
+        }
+
+        .param-row input[type="range"] {
+            flex: 1;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-card);
+            -webkit-appearance: none;
+        }
+
+        .param-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        .param-value {
+            font-size: 0.7rem;
+            color: var(--accent-blue);
+            min-width: 55px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .param-hint {
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-top: 4px;
+        }
+
+        .process-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px;
+            background: var(--accent-blue);
+            border-radius: 3px;
+            margin-top: 12px;
+            font-size: 0.85rem;
+        }
+
+        .process-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 380px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .stat-item:last-child {
+                grid-column: span 2;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Drive-Thru<span class="header-credit">by Yousif Shakir - www.donialink.com</span></h1>
+        <div class="header-actions">
+            <button class="icon-btn" onclick="toggleSettings()" title="Settings">&#9881;</button>
+        </div>
+    </div>
+
+    <div id="error-banner" class="error-banner">
+        Connection lost. Reconnecting...
+    </div>
+
+    <!-- Lane Status -->
+    <div class="card lane-status">
+        <div id="lane-indicator" class="lane-indicator empty">
+            <span id="lane-icon">-</span>
+        </div>
+        <div id="lane-text" class="lane-text">Lane Empty</div>
+        <div id="waiting-time" class="waiting-time"></div>
+        <button class="icon-btn" style="margin-top: 10px; padding: 5px 14px; font-size: 0.75rem;" onclick="resetSensor()" title="If the sensor gets stuck showing a car present, use this to clear it back to empty">
+            🔄 Reset (Mark Departed)
+        </button>
+        <div id="sensor-reset-status" style="font-size: 0.7rem; color: var(--text-secondary); min-height: 1em; margin-top: 4px;"></div>
+    </div>
+
+    <!-- Sensor Card with Distance Chart -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Sensor</span>
+            <span id="sensor-stable-badge" class="badge unknown" style="margin-right: 6px;">--</span>
+            <span id="sensor-badge" class="badge unknown">Unknown</span>
+        </div>
+        <div class="distance-chart">
+            <canvas id="distance-canvas"></canvas>
+            <div id="distance-display" class="distance-display">-- cm</div>
+        </div>
+        <div class="vad-tuning">
+            <div class="vad-tuning-field">
+                <label for="sensor-min">Min (cm)</label>
+                <input type="number" id="sensor-min" min="0" max="400" step="5" value="50">
+            </div>
+            <div class="vad-tuning-field">
+                <label for="sensor-max">Max (cm)</label>
+                <input type="number" id="sensor-max" min="0" max="400" step="5" value="100">
+            </div>
+            <div class="vad-tuning-field">
+                <label for="sensor-arrival-hold">Arrival hold (s)</label>
+                <input type="number" id="sensor-arrival-hold" min="0" max="30" step="0.5" value="2.0">
+            </div>
+            <div class="vad-tuning-field">
+                <label for="sensor-departure-hold">Departure hold (s)</label>
+                <input type="number" id="sensor-departure-hold" min="0" max="30" step="0.5" value="3.0">
+            </div>
+            <div class="vad-tuning-field">
+                <label for="sensor-steady">Steady for (s)</label>
+                <input type="number" id="sensor-steady" min="0" max="10" step="0.5" value="1.0">
+            </div>
+            <button class="icon-btn" style="padding: 5px 14px; font-size: 0.75rem;" onclick="saveSensorSettings()">Apply</button>
+            <span id="sensor-save-status" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+            <span class="vad-tuning-hint" style="width: 100%;">Readings must stay steady (not bouncing around) for "Steady for" seconds before they're trusted at all - filters out sensor noise/interference with nothing actually there. Once trusted, compares a 3-second rolling average against Min/Max - closer than Min or farther than Max never counts. Must stay inside that band for the arrival hold time to count as arrived (filters people walking by), and clear the band for the departure hold time to count as left.</span>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Today's Stats</span>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div id="cars-today" class="stat-value">0</div>
+                <div class="stat-label">Cars</div>
+            </div>
+            <div class="stat-item">
+                <div id="avg-time" class="stat-value">0:00</div>
+                <div class="stat-label">Avg Time</div>
+            </div>
+            <div class="stat-item">
+                <div id="sensor-distance" class="stat-value">--</div>
+                <div class="stat-label">Distance</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Arrival Chime -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Arrival Chime</span>
+            <span id="chime-badge" class="badge unknown">Checking&hellip;</span>
+        </div>
+        <div class="vad-tuning" style="border-top: none; padding-top: 0;">
+            <div class="vad-tuning-field">
+                <label for="chime-select">Sound</label>
+                <select id="chime-select" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 6px; font-size: 0.75rem; border-radius: 2px;">
+                    <option value="classic">Classic</option>
+                    <option value="double_beep">Double Beep</option>
+                    <option value="soft">Soft</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="custom" id="chime-custom-option" disabled>Custom (none uploaded)</option>
+                </select>
+            </div>
+            <button class="icon-btn" style="padding: 5px 14px; font-size: 0.75rem;" onclick="saveChimeSettings()">Apply</button>
+            <button class="icon-btn" style="padding: 5px 14px; font-size: 0.75rem;" onclick="testAudioDevice('headset')">🔊 Test</button>
+            <span id="chime-save-status" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+        </div>
+        <div class="vad-tuning" style="margin-top: 0;">
+            <div class="vad-tuning-field">
+                <label for="chime-upload">Or upload your own (.wav)</label>
+                <input type="file" id="chime-upload" accept="audio/wav,.wav">
+            </div>
+            <button class="icon-btn" style="padding: 5px 14px; font-size: 0.75rem;" onclick="uploadChime()">Upload &amp; use</button>
+            <span id="chime-upload-status" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+        </div>
+    </div>
+
+
+    <!-- Tabs for Audio -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('levels')">Levels</button>
+        <button class="tab-btn" onclick="switchTab('flow')">Audio Flow</button>
+        <button class="tab-btn" onclick="switchTab('volume')">Volume</button>
+        <button class="tab-btn" onclick="switchTab('mode')">Mode</button>
+    </div>
+
+    <!-- Live Audio Levels Tab -->
+    <div id="tab-levels" class="tab-content active">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Audio Levels</span>
+            </div>
+            <div class="audio-meters">
+                <div class="meter-row">
+                    <span class="meter-label">Outdoor Mic</span>
+                    <div class="meter-container">
+                        <div id="meter-outdoor-mic" class="meter-bar" style="width: 0%">
+                            <div class="meter-peak"></div>
+                        </div>
+                    </div>
+                    <span id="meter-val-outdoor-mic" class="meter-value">-∞ dB</span>
+                </div>
+                <div class="meter-row" style="justify-content: flex-start; gap: 10px;">
+                    <span class="meter-label" style="width: auto; flex: none;">Outdoor Mic Noise Filter</span>
+                    <span id="denoise-badge" class="badge unknown">Checking&hellip;</span>
+                </div>
+                <div class="vad-tuning">
+                    <div class="vad-tuning-field">
+                        <label for="denoise-atten">Noise reduction (dB)</label>
+                        <input type="number" id="denoise-atten" min="0" max="100" step="1" value="40">
+                        <span class="vad-tuning-hint">0 = filter off, 100 = max (can cut speech mid-word - 40 is the tested-safe value)</span>
+                    </div>
+                    <button class="icon-btn" style="padding: 5px 14px; font-size: 0.75rem;" onclick="saveDenoiseSettings()">Apply</button>
+                    <span id="denoise-save-status" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+                </div>
+                <div class="meter-row">
+                    <span class="meter-label">Speaker</span>
+                    <div class="meter-container">
+                        <div id="meter-outdoor-speaker" class="meter-bar" style="width: 0%">
+                            <div class="meter-peak"></div>
+                        </div>
+                    </div>
+                    <span id="meter-val-outdoor-speaker" class="meter-value">-∞ dB</span>
+                </div>
+                <div class="meter-row">
+                    <span class="meter-label">Headset</span>
+                    <div class="meter-container">
+                        <div id="meter-headset" class="meter-bar" style="width: 0%">
+                            <div class="meter-peak"></div>
+                        </div>
+                    </div>
+                    <span id="meter-val-headset" class="meter-value">-∞ dB</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Flow Tab -->
+    <div id="tab-flow" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Signal Flow Diagram</span>
+            </div>
+            <div class="flow-diagram">
+                <!-- Customer to Staff Path -->
+                <div class="flow-section">
+                    <div class="flow-label">Customer → Staff</div>
+                    <div class="flow-path">
+                        <div class="flow-node source">
+                            <div class="node-icon">🎤</div>
+                            <div class="node-name">Outdoor Mic</div>
+                            <div class="node-detail" id="flow-outdoor-mic">UMC202HD Input</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node filter">
+                            <div class="node-icon">🔊</div>
+                            <div class="node-name">AEC</div>
+                            <div class="node-filters">
+                                <span class="filter-tag">Echo Cancel</span>
+                                <span class="filter-tag">Noise Suppress</span>
+                                <span class="filter-tag">High-Pass</span>
+                            </div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node virtual">
+                            <div class="node-icon">📡</div>
+                            <div class="node-name">dt_aec_source</div>
+                            <div class="node-detail">Virtual Source</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node loopback">
+                            <div class="node-icon">🔁</div>
+                            <div class="node-name">Loopback</div>
+                            <div class="node-detail">PipeWire</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node sink">
+                            <div class="node-icon">🎧</div>
+                            <div class="node-name">Headset</div>
+                            <div class="node-detail" id="flow-headset-sink">Bluetooth Sink</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Staff to Customer Path -->
+                <div class="flow-section">
+                    <div class="flow-label">Staff → Customer</div>
+                    <div class="flow-path">
+                        <div class="flow-node source">
+                            <div class="node-icon">🎤</div>
+                            <div class="node-name">Headset Mic</div>
+                            <div class="node-detail" id="flow-headset-source">Bluetooth Source</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node loopback">
+                            <div class="node-icon">🔁</div>
+                            <div class="node-name">Loopback</div>
+                            <div class="node-detail">PipeWire</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node virtual">
+                            <div class="node-icon">📡</div>
+                            <div class="node-name">dt_aec_sink</div>
+                            <div class="node-detail">Virtual Sink</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node filter">
+                            <div class="node-icon">🔊</div>
+                            <div class="node-name">AEC</div>
+                            <div class="node-filters">
+                                <span class="filter-tag">Echo Cancel</span>
+                                <span class="filter-tag">AGC</span>
+                            </div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node sink">
+                            <div class="node-icon">📢</div>
+                            <div class="node-name">Speaker</div>
+                            <div class="node-detail" id="flow-outdoor-speaker">UMC202HD Output</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PipeWire Nodes List -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">PipeWire Nodes</span>
+                <button class="icon-btn" style="padding: 4px 8px; font-size: 0.75rem;" onclick="refreshNodes()">Refresh</button>
+            </div>
+            <div id="pw-nodes-list" class="pw-nodes-list">
+                Loading nodes...
+            </div>
+        </div>
+
+        <!-- Adjustable Filter Controls -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Filter Tuning</span>
+                <button class="icon-btn" style="padding: 4px 8px; font-size: 0.7rem; background: var(--accent-green);" onclick="applyFilters()">
+                    Apply & Process
+                </button>
+            </div>
+
+            <!-- High-Pass Filter -->
+            <div class="filter-control">
+                <div class="filter-header">
+                    <label class="filter-toggle">
+                        <input type="checkbox" id="hp-enabled" checked onchange="updateFilterUI()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="filter-title">1. High-Pass Filter</span>
+                </div>
+                <div class="filter-params" id="hp-params">
+                    <div class="param-row">
+                        <span class="param-label">Cutoff Freq</span>
+                        <input type="range" id="hp-cutoff" min="50" max="500" value="150" oninput="updateParamDisplay(this, 'Hz')">
+                        <span class="param-value" id="hp-cutoff-val">150 Hz</span>
+                    </div>
+                    <div class="param-hint">Removes low frequencies (engine rumble)</div>
+                </div>
+            </div>
+
+            <!-- Noise Gate -->
+            <div class="filter-control">
+                <div class="filter-header">
+                    <label class="filter-toggle">
+                        <input type="checkbox" id="ng-enabled" checked onchange="updateFilterUI()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="filter-title">2. Noise Gate</span>
+                </div>
+                <div class="filter-params" id="ng-params">
+                    <div class="param-row">
+                        <span class="param-label">Threshold</span>
+                        <input type="range" id="ng-threshold" min="0" max="100" value="15" oninput="updateParamDisplay(this, '%', 0.001)">
+                        <span class="param-value" id="ng-threshold-val">1.5%</span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">Reduction</span>
+                        <input type="range" id="ng-reduction" min="0" max="100" value="20" oninput="updateParamDisplay(this, '%')">
+                        <span class="param-value" id="ng-reduction-val">20%</span>
+                    </div>
+                    <div class="param-hint">Reduces quiet background noise</div>
+                </div>
+            </div>
+
+            <!-- Presence Boost -->
+            <div class="filter-control">
+                <div class="filter-header">
+                    <label class="filter-toggle">
+                        <input type="checkbox" id="pb-enabled" checked onchange="updateFilterUI()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="filter-title">3. Presence Boost</span>
+                </div>
+                <div class="filter-params" id="pb-params">
+                    <div class="param-row">
+                        <span class="param-label">Low Freq</span>
+                        <input type="range" id="pb-low" min="500" max="4000" value="2000" oninput="updateParamDisplay(this, 'Hz')">
+                        <span class="param-value" id="pb-low-val">2000 Hz</span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">High Freq</span>
+                        <input type="range" id="pb-high" min="2000" max="8000" value="4000" oninput="updateParamDisplay(this, 'Hz')">
+                        <span class="param-value" id="pb-high-val">4000 Hz</span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">Gain</span>
+                        <input type="range" id="pb-gain" min="0" max="100" value="30" oninput="updateParamDisplay(this, '%')">
+                        <span class="param-value" id="pb-gain-val">30%</span>
+                    </div>
+                    <div class="param-hint">Enhances voice clarity frequencies</div>
+                </div>
+            </div>
+
+            <!-- Compressor -->
+            <div class="filter-control">
+                <div class="filter-header">
+                    <label class="filter-toggle">
+                        <input type="checkbox" id="comp-enabled" checked onchange="updateFilterUI()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="filter-title">4. Compressor</span>
+                </div>
+                <div class="filter-params" id="comp-params">
+                    <div class="param-row">
+                        <span class="param-label">Threshold</span>
+                        <input type="range" id="comp-threshold" min="10" max="80" value="25" oninput="updateParamDisplay(this, '%')">
+                        <span class="param-value" id="comp-threshold-val">25%</span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">Ratio</span>
+                        <input type="range" id="comp-ratio" min="10" max="90" value="40" oninput="updateParamDisplay(this, '%')">
+                        <span class="param-value" id="comp-ratio-val">40%</span>
+                    </div>
+                    <div class="param-hint">Evens out loud/quiet parts</div>
+                </div>
+            </div>
+
+            <!-- Normalize -->
+            <div class="filter-control">
+                <div class="filter-header">
+                    <label class="filter-toggle">
+                        <input type="checkbox" id="norm-enabled" checked onchange="updateFilterUI()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="filter-title">5. Normalize</span>
+                </div>
+                <div class="filter-params" id="norm-params">
+                    <div class="param-row">
+                        <span class="param-label">Target Level</span>
+                        <input type="range" id="norm-target" min="50" max="100" value="85" oninput="updateParamDisplay(this, '%')">
+                        <span class="param-value" id="norm-target-val">85%</span>
+                    </div>
+                    <div class="param-hint">Sets final output volume</div>
+                </div>
+            </div>
+
+            <!-- Processing Status -->
+            <div id="process-status" class="process-status" style="display: none;">
+                <div class="process-spinner"></div>
+                <span>Processing audio...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Volume Tab -->
+    <div id="tab-volume" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Volume Control</span>
+            </div>
+
+            <div class="volume-control">
+                <div class="volume-header">
+                    <span class="volume-label">
+                        <button id="mute-outdoor-mic" class="mute-btn" onclick="toggleMute('outdoor_mic')">&#128266;</button>
+                        Outdoor Mic
+                    </span>
+                    <span id="vol-mic-value" class="volume-value">100%</span>
+                </div>
+                <input type="range" id="vol-mic" class="volume-slider"
+                       min="0" max="150" value="100"
+                       oninput="updateVolume('outdoor_mic', this.value)">
+            </div>
+
+            <div class="volume-control">
+                <div class="volume-header">
+                    <span class="volume-label">
+                        <button id="mute-outdoor-speaker" class="mute-btn" onclick="toggleMute('outdoor_speaker')">&#128266;</button>
+                        Outdoor Speaker
+                    </span>
+                    <span style="display: flex; align-items: center; gap: 10px;">
+                        <button class="icon-btn" id="test-btn-outdoor_speaker" style="padding: 4px 10px; font-size: 0.75rem;" onclick="testAudioDevice('outdoor_speaker')">Test</button>
+                        <button class="icon-btn" id="test-btn-raw" style="padding: 4px 10px; font-size: 0.75rem;" onclick="testAudioRaw()" title="Bypasses PipeWire entirely - plays straight to the hardware">Test (Raw HW)</button>
+                        <span id="vol-speaker-value" class="volume-value">80%</span>
+                    </span>
+                </div>
+                <input type="range" id="vol-speaker" class="volume-slider"
+                       min="0" max="150" value="80"
+                       oninput="updateVolume('outdoor_speaker', this.value)">
+            </div>
+
+            <div class="volume-control">
+                <div class="volume-header">
+                    <span class="volume-label">
+                        <button id="mute-headset" class="mute-btn" onclick="toggleMute('headset')">&#128266;</button>
+                        Headset
+                    </span>
+                    <span style="display: flex; align-items: center; gap: 10px;">
+                        <button class="icon-btn" id="test-btn-headset" style="padding: 4px 10px; font-size: 0.75rem;" onclick="testAudioDevice('headset')">Test</button>
+                        <span id="vol-headset-value" class="volume-value">100%</span>
+                    </span>
+                </div>
+                <input type="range" id="vol-headset" class="volume-slider"
+                       min="0" max="150" value="100"
+                       oninput="updateVolume('headset', this.value)">
+            </div>
+
+            <div id="test-audio-status" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; min-height: 1em;"></div>
+        </div>
+    </div>
+
+    <!-- Mode Tab -->
+    <div id="tab-mode" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Audio Mode</span>
+            </div>
+            <div class="mode-toggle">
+                <button id="mode-duplex" class="mode-btn active" onclick="setMode('full_duplex')">
+                    Full Duplex
+                </button>
+                <button id="mode-ptt" class="mode-btn" onclick="setMode('ptt')">
+                    Push-to-Talk
+                </button>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 12px; line-height: 1.5;">
+                <strong>Full Duplex:</strong> Both directions always open.<br>
+                <strong>Push-to-Talk:</strong> Hold button to transmit to customer.
+            </p>
+        </div>
+    </div>
+
+    <!-- PTT Button -->
+    <div class="ptt-container">
+        <button id="ptt-button" class="ptt-button disabled">
+            Full Duplex - Always On
+        </button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-overlay" class="settings-overlay" onclick="toggleSettings()"></div>
+    <div id="settings-panel" class="settings-panel">
+        <div class="settings-header">
+            <h2>Settings</h2>
+            <button class="close-btn" onclick="toggleSettings()">&times;</button>
+        </div>
+
+        <div class="settings-section">
+            <h3>Connection</h3>
+            <div class="device-item">
+                <div class="info-row">
+                    <span class="info-label">Server</span>
+                    <span class="info-value">
+                        <span id="conn-dot" class="connection-dot connected"></span>
+                        <span id="conn-status">Connected</span>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Serial Port</span>
+                    <span id="serial-port" class="info-value">/dev/ttyUSB0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Detection Band</span>
+                    <span id="threshold" class="info-value">50 - 100 cm</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h3>Audio Devices</h3>
+            <div class="device-item">
+                <div class="device-label">Outdoor Mic (AEC Source)</div>
+                <div id="dev-outdoor-mic" class="device-name">-</div>
+            </div>
+            <div class="device-item">
+                <div class="device-label">Outdoor Speaker (AEC Sink)</div>
+                <div id="dev-outdoor-speaker" class="device-name">-</div>
+            </div>
+            <div class="device-item">
+                <div class="device-label">Headset Output</div>
+                <div id="dev-headset-sink" class="device-name">-</div>
+            </div>
+            <div class="device-item">
+                <div class="device-label">Headset Mic</div>
+                <div id="dev-headset-source" class="device-name">-</div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h3>Bluetooth Headset</h3>
+            <div class="device-item">
+                <button class="icon-btn" id="bt-scan-btn" style="width: 100%;" onclick="scanBluetooth()">
+                    Scan for Devices
+                </button>
+            </div>
+            <div id="bt-status" style="font-size: 0.75rem; color: var(--text-secondary); margin: 6px 0;"></div>
+            <div id="bt-paired-list"></div>
+            <div id="bt-scan-list"></div>
+        </div>
+
+        <div class="settings-section">
+            <h3>Available PipeWire Nodes</h3>
+            <div id="pipewire-nodes" style="font-size: 0.75rem; color: var(--text-secondary);">
+                Loading...
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <button class="icon-btn" style="width: 100%;" onclick="refreshAudio()">
+                Refresh Audio Devices
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let currentState = null;
+        let pollInterval = null;
+        let volumeDebounce = {};
+        let carArrivedAt = null;
+        let waitingTimeInterval = null;
+        let distanceHistory = [];
+        let audioLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
+        let peakLevels = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
+        let peakHoldTime = { outdoor_mic: 0, outdoor_speaker: 0, headset: 0 };
+        let distanceCanvas, distanceCtx;
+        const MAX_DISTANCE_HISTORY = 60;
+        let currentMinCm = 50;
+        let currentMaxCm = 100;
+
+        // API helpers
+        async function api(method, endpoint, body = null) {
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                const response = await fetch(`/api${endpoint}`, options);
+                if (!response.ok) {
+                    let detail = `HTTP ${response.status}`;
+                    try {
+                        const body = await response.json();
+                        if (body && body.detail) detail = body.detail;
+                    } catch (_) { /* body wasn't JSON - keep the generic message */ }
+                    throw new Error(detail);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API error:', error);
+                throw error;
+            }
+        }
+
+        // Tab switching
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+        }
+
+        // Settings panel
+        function toggleSettings() {
+            const overlay = document.getElementById('settings-overlay');
+            const panel = document.getElementById('settings-panel');
+            overlay.classList.toggle('visible');
+            panel.classList.toggle('visible');
+
+            if (panel.classList.contains('visible')) {
+                loadSettings();
+            }
+        }
+
+        async function loadSettings() {
+            try {
+                const settings = await api('GET', '/settings');
+                document.getElementById('serial-port').textContent = settings.serial_port;
+                document.getElementById('threshold').textContent = `${settings.detect_min_cm} - ${settings.detect_max_cm} cm`;
+                document.getElementById('dev-outdoor-mic').textContent = settings.devices.outdoor_mic || '-';
+                document.getElementById('dev-outdoor-speaker').textContent = settings.devices.outdoor_speaker || '-';
+                document.getElementById('dev-headset-sink').textContent = settings.devices.headset_sink || '-';
+                document.getElementById('dev-headset-source').textContent = settings.devices.headset_source || '-';
+
+                // Load PipeWire nodes
+                const nodes = await api('GET', '/pipewire-nodes');
+                const container = document.getElementById('pipewire-nodes');
+                if (nodes.nodes && nodes.nodes.length > 0) {
+                    container.innerHTML = nodes.nodes.map(n =>
+                        `<div style="margin-bottom: 8px; padding: 8px; background: var(--bg-card); border-radius: 2px;">
+                            <div style="color: var(--accent-blue); font-family: monospace;">${n.name}</div>
+                            <div style="font-size: 0.625rem; margin-top: 2px;">${n.description} (${n.class})</div>
+                        </div>`
+                    ).join('');
+                } else {
+                    container.innerHTML = nodes.error || 'No audio nodes found';
+                }
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+
+            loadBluetoothPaired();
+        }
+
+        async function refreshAudio() {
+            try {
+                await api('POST', '/refresh-audio');
+                await loadSettings();
+            } catch (e) {
+                console.error('Failed to refresh audio:', e);
+            }
+        }
+
+        // Bluetooth headset pairing
+        function btDeviceRow(mac, name, { paired, connected, audioReady, busy } = {}) {
+            const safeName = (name || mac).replace(/</g, '&lt;');
+            let actions = '';
+            if (connected) {
+                actions = `<button class="icon-btn" onclick="disconnectBluetooth('${mac}')" ${busy ? 'disabled' : ''}>Disconnect</button>`;
+            } else {
+                actions = `<button class="icon-btn" onclick="connectBluetooth('${mac}')" ${busy ? 'disabled' : ''}>${paired ? 'Connect' : 'Pair & Connect'}</button>`;
+            }
+            if (paired) {
+                actions += ` <button class="icon-btn" onclick="forgetBluetooth('${mac}')" ${busy ? 'disabled' : ''}>Forget</button>`;
+            }
+            // "Connected" (radio link up) and "Ready" (audio path actually
+            // working - PipeWire's caught up) aren't the same moment - a
+            // device can sit in the gap between the two for a bit. Show
+            // that honestly instead of a single "Connected" badge that
+            // might not mean audio actually works yet.
+            let badge = '';
+            if (connected && audioReady) {
+                badge = ' <span class="badge online" style="margin-left:6px;">Ready</span>';
+            } else if (connected) {
+                badge = ' <span class="badge" style="margin-left:6px; background: var(--accent-yellow); color:#000;">Connecting&hellip;</span>';
+            }
+            return `<div class="device-item" id="bt-row-${mac.replace(/:/g, '')}" style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+                <div>
+                    <div class="device-label">${safeName}${badge}</div>
+                    <div class="device-name" style="font-size:0.7rem;">${mac}</div>
+                </div>
+                <div style="display:flex; gap: 6px;">${actions}</div>
+            </div>`;
+        }
+
+        async function loadBluetoothPaired() {
+            const container = document.getElementById('bt-paired-list');
+            try {
+                const data = await api('GET', '/bluetooth/devices');
+                if (data.devices && data.devices.length > 0) {
+                    container.innerHTML = data.devices.map(d =>
+                        btDeviceRow(d.mac, d.name, { paired: d.paired, connected: d.connected, audioReady: d.audio_ready })
+                    ).join('');
+                } else {
+                    container.innerHTML = '<div style="font-size:0.75rem; color: var(--text-secondary);">No paired devices yet.</div>';
+                }
+            } catch (e) {
+                console.error('Failed to load Bluetooth devices:', e);
+            }
+        }
+
+        async function scanBluetooth() {
+            const btn = document.getElementById('bt-scan-btn');
+            const status = document.getElementById('bt-status');
+            const listEl = document.getElementById('bt-scan-list');
+            btn.disabled = true;
+            btn.textContent = 'Scanning... (8s)';
+            status.textContent = 'Put the headset in pairing mode now.';
+            listEl.innerHTML = '';
+
+            try {
+                const data = await api('GET', '/bluetooth/scan?duration=8');
+                if (data.devices && data.devices.length > 0) {
+                    listEl.innerHTML = data.devices
+                        .filter(d => !d.paired)
+                        .map(d => btDeviceRow(d.mac, d.name, { paired: false, connected: false }))
+                        .join('');
+                    status.textContent = `Found ${data.devices.length} device(s).`;
+                } else {
+                    status.textContent = 'No devices found. Make sure the headset is in pairing mode and try again.';
+                }
+            } catch (e) {
+                console.error('Bluetooth scan failed:', e);
+                status.textContent = 'Scan failed.';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Scan for Devices';
+            }
+        }
+
+        async function connectBluetooth(mac) {
+            const status = document.getElementById('bt-status');
+            status.textContent = `Connecting to ${mac}...`;
+            try {
+                const result = await api('POST', '/bluetooth/connect', { mac });
+                status.textContent = result.warning || `Connected. Headset set as active audio device.`;
+                await loadSettings();
+            } catch (e) {
+                console.error('Bluetooth connect failed:', e);
+                status.textContent = `Connect failed: ${e.message}`;
+            }
+        }
+
+        async function disconnectBluetooth(mac) {
+            const status = document.getElementById('bt-status');
+            try {
+                await api('POST', '/bluetooth/disconnect', { mac });
+                status.textContent = 'Disconnected.';
+                await loadBluetoothPaired();
+            } catch (e) {
+                console.error('Bluetooth disconnect failed:', e);
+                status.textContent = `Disconnect failed: ${e.message}`;
+            }
+        }
+
+        async function forgetBluetooth(mac) {
+            const status = document.getElementById('bt-status');
+            try {
+                await api('POST', '/bluetooth/forget', { mac });
+                status.textContent = 'Device removed.';
+                await loadBluetoothPaired();
+            } catch (e) {
+                console.error('Bluetooth forget failed:', e);
+                status.textContent = `Remove failed: ${e.message}`;
+            }
+        }
+
+        async function refreshNodes() {
+            const container = document.getElementById('pw-nodes-list');
+            container.innerHTML = 'Loading...';
+
+            try {
+                const data = await api('GET', '/pipewire-nodes');
+                const settings = await api('GET', '/settings');
+
+                // Update flow diagram node details
+                if (settings.devices) {
+                    const updateFlowNode = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el && value) {
+                            el.textContent = value.split('.').pop().substring(0, 15);
+                            el.title = value;
+                        }
+                    };
+                    updateFlowNode('flow-outdoor-mic', settings.devices.outdoor_mic);
+                    updateFlowNode('flow-outdoor-speaker', settings.devices.outdoor_speaker);
+                    updateFlowNode('flow-headset-sink', settings.devices.headset_sink);
+                    updateFlowNode('flow-headset-source', settings.devices.headset_source);
+                }
+
+                if (data.nodes && data.nodes.length > 0) {
+                    container.innerHTML = data.nodes.map(n => {
+                        const nodeClass = n.class.includes('Sink') ? 'sink' :
+                                         n.class.includes('Source') ? 'source' : '';
+                        const classLabel = n.class.replace('Audio/', '').replace('Stream/', '');
+                        return `
+                            <div class="pw-node-item ${nodeClass}">
+                                <span class="pw-node-id">#${n.id}</span>
+                                <div class="pw-node-info">
+                                    <div class="pw-node-name" title="${n.name}">${n.name}</div>
+                                    <div class="pw-node-desc">${n.description || 'No description'}</div>
+                                </div>
+                                <span class="pw-node-class">${classLabel}</span>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    container.innerHTML = '<div style="color: var(--text-secondary); padding: 10px;">No audio nodes found. Is PipeWire running?</div>';
+                }
+            } catch (e) {
+                container.innerHTML = '<div style="color: var(--accent); padding: 10px;">Failed to load nodes</div>';
+            }
+        }
+
+        // Load nodes when switching to flow tab
+        const originalSwitchTab = switchTab;
+        switchTab = function(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+
+            if (tab === 'flow') {
+                refreshNodes();
+                loadFilterSettings();
+            }
+        };
+
+        // Filter control functions
+        function updateParamDisplay(input, unit, multiplier = 1) {
+            const val = parseFloat(input.value) * multiplier;
+            const displayVal = multiplier < 1 ? val.toFixed(1) : Math.round(val);
+            document.getElementById(input.id + '-val').textContent = displayVal + ' ' + unit;
+        }
+
+        function updateFilterUI() {
+            const filters = ['hp', 'ng', 'pb', 'comp', 'norm'];
+            filters.forEach(f => {
+                const enabled = document.getElementById(f + '-enabled').checked;
+                const params = document.getElementById(f + '-params');
+                if (params) {
+                    params.classList.toggle('disabled', !enabled);
+                }
+            });
+        }
+
+        async function loadFilterSettings() {
+            try {
+                const settings = await api('GET', '/filter-settings');
+
+                // High-pass
+                if (settings.high_pass) {
+                    document.getElementById('hp-enabled').checked = settings.high_pass.enabled;
+                    document.getElementById('hp-cutoff').value = settings.high_pass.cutoff;
+                    document.getElementById('hp-cutoff-val').textContent = settings.high_pass.cutoff + ' Hz';
+                }
+
+                // Noise gate
+                if (settings.noise_gate) {
+                    document.getElementById('ng-enabled').checked = settings.noise_gate.enabled;
+                    document.getElementById('ng-threshold').value = settings.noise_gate.threshold * 1000;
+                    document.getElementById('ng-threshold-val').textContent = (settings.noise_gate.threshold * 100).toFixed(1) + '%';
+                    document.getElementById('ng-reduction').value = settings.noise_gate.reduction * 100;
+                    document.getElementById('ng-reduction-val').textContent = Math.round(settings.noise_gate.reduction * 100) + '%';
+                }
+
+                // Presence boost
+                if (settings.presence_boost) {
+                    document.getElementById('pb-enabled').checked = settings.presence_boost.enabled;
+                    document.getElementById('pb-low').value = settings.presence_boost.low_freq;
+                    document.getElementById('pb-low-val').textContent = settings.presence_boost.low_freq + ' Hz';
+                    document.getElementById('pb-high').value = settings.presence_boost.high_freq;
+                    document.getElementById('pb-high-val').textContent = settings.presence_boost.high_freq + ' Hz';
+                    document.getElementById('pb-gain').value = settings.presence_boost.gain * 100;
+                    document.getElementById('pb-gain-val').textContent = Math.round(settings.presence_boost.gain * 100) + '%';
+                }
+
+                // Compressor
+                if (settings.compressor) {
+                    document.getElementById('comp-enabled').checked = settings.compressor.enabled;
+                    document.getElementById('comp-threshold').value = settings.compressor.threshold * 100;
+                    document.getElementById('comp-threshold-val').textContent = Math.round(settings.compressor.threshold * 100) + '%';
+                    document.getElementById('comp-ratio').value = settings.compressor.ratio * 100;
+                    document.getElementById('comp-ratio-val').textContent = Math.round(settings.compressor.ratio * 100) + '%';
+                }
+
+                // Normalize
+                if (settings.normalize) {
+                    document.getElementById('norm-enabled').checked = settings.normalize.enabled;
+                    document.getElementById('norm-target').value = settings.normalize.target * 100;
+                    document.getElementById('norm-target-val').textContent = Math.round(settings.normalize.target * 100) + '%';
+                }
+
+                updateFilterUI();
+            } catch (e) {
+                console.error('Failed to load filter settings:', e);
+            }
+        }
+
+        function getFilterSettings() {
+            return {
+                high_pass: {
+                    enabled: document.getElementById('hp-enabled').checked,
+                    cutoff: parseInt(document.getElementById('hp-cutoff').value)
+                },
+                noise_gate: {
+                    enabled: document.getElementById('ng-enabled').checked,
+                    threshold: parseInt(document.getElementById('ng-threshold').value) / 1000,
+                    reduction: parseInt(document.getElementById('ng-reduction').value) / 100
+                },
+                presence_boost: {
+                    enabled: document.getElementById('pb-enabled').checked,
+                    low_freq: parseInt(document.getElementById('pb-low').value),
+                    high_freq: parseInt(document.getElementById('pb-high').value),
+                    gain: parseInt(document.getElementById('pb-gain').value) / 100
+                },
+                compressor: {
+                    enabled: document.getElementById('comp-enabled').checked,
+                    threshold: parseInt(document.getElementById('comp-threshold').value) / 100,
+                    ratio: parseInt(document.getElementById('comp-ratio').value) / 100
+                },
+                normalize: {
+                    enabled: document.getElementById('norm-enabled').checked,
+                    target: parseInt(document.getElementById('norm-target').value) / 100
+                }
+            };
+        }
+
+        async function applyFilters() {
+            const status = document.getElementById('process-status');
+            status.style.display = 'flex';
+
+            try {
+                // Save settings
+                const settings = getFilterSettings();
+                await api('POST', '/filter-settings', settings);
+
+                // Process audio
+                const result = await api('POST', '/process-audio');
+
+                if (result.status === 'ok') {
+                    status.innerHTML = '<span style="color: var(--accent-green);">✓ Processing complete! Play to hear result.</span>';
+                    // Auto-hide after 3s
+                    setTimeout(() => {
+                        status.style.display = 'none';
+                        status.innerHTML = '<div class="process-spinner"></div><span>Processing audio...</span>';
+                    }, 3000);
+                } else {
+                    status.innerHTML = '<span style="color: var(--accent);">✗ Error: ' + (result.error || 'Unknown error') + '</span>';
+                }
+            } catch (e) {
+                status.innerHTML = '<span style="color: var(--accent);">✗ Failed to process</span>';
+                console.error('Apply filters error:', e);
+            }
+        }
+
+        // Update UI from state
+        function updateUI(state) {
+            document.getElementById('error-banner').classList.remove('visible');
+            document.getElementById('conn-dot').className = 'connection-dot connected';
+            document.getElementById('conn-status').textContent = 'Connected';
+
+            // Lane status
+            const indicator = document.getElementById('lane-indicator');
+            const icon = document.getElementById('lane-icon');
+            const text = document.getElementById('lane-text');
+            const waitingTime = document.getElementById('waiting-time');
+
+            if (state.lane_status === 'car_present') {
+                indicator.className = 'lane-indicator car-present';
+                icon.textContent = '🚗';
+                text.textContent = 'Customer Waiting';
+                carArrivedAt = state.car_arrived_at ? new Date(state.car_arrived_at) : new Date();
+                startWaitingTimer();
+            } else {
+                indicator.className = 'lane-indicator empty';
+                icon.textContent = '-';
+                text.textContent = 'Lane Empty';
+                waitingTime.textContent = '';
+                carArrivedAt = null;
+                stopWaitingTimer();
+            }
+
+            // Sensor status
+            const badge = document.getElementById('sensor-badge');
+            badge.className = `badge ${state.sensor_status}`;
+            badge.textContent = state.sensor_status;
+
+            // Distance
+            document.getElementById('distance-display').textContent = `${state.last_distance_cm} cm`;
+            document.getElementById('sensor-distance').textContent = state.last_distance_cm;
+
+            // Update distance history
+            distanceHistory.push(state.last_distance_cm);
+            if (distanceHistory.length > MAX_DISTANCE_HISTORY) {
+                distanceHistory.shift();
+            }
+            drawDistanceChart();
+
+            // Audio mode
+            const modeDuplex = document.getElementById('mode-duplex');
+            const modePtt = document.getElementById('mode-ptt');
+            const pttButton = document.getElementById('ptt-button');
+
+            if (state.audio_mode === 'full_duplex') {
+                modeDuplex.classList.add('active');
+                modePtt.classList.remove('active');
+                pttButton.className = 'ptt-button disabled';
+                pttButton.textContent = 'Full Duplex - Always On';
+            } else {
+                modeDuplex.classList.remove('active');
+                modePtt.classList.add('active');
+                pttButton.classList.remove('disabled');
+                if (state.ptt_active) {
+                    pttButton.className = 'ptt-button active';
+                    pttButton.textContent = '🎤 TRANSMITTING...';
+                } else {
+                    pttButton.className = 'ptt-button inactive';
+                    pttButton.textContent = 'Hold to Talk';
+                }
+            }
+
+            // Volumes
+            if (state.volumes) {
+                updateVolumeSlider('outdoor_mic', state.volumes.outdoor_mic);
+                updateVolumeSlider('outdoor_speaker', state.volumes.outdoor_speaker);
+                updateVolumeSlider('headset', state.volumes.headset);
+            }
+
+            // Mute states
+            if (state.muted) {
+                updateMuteButton('outdoor_mic', state.muted.outdoor_mic);
+                updateMuteButton('outdoor_speaker', state.muted.outdoor_speaker);
+                updateMuteButton('headset', state.muted.headset);
+            }
+
+            currentState = state;
+        }
+
+        function updateVolumeSlider(device, value) {
+            const sliderMap = {
+                'outdoor_mic': 'vol-mic',
+                'outdoor_speaker': 'vol-speaker',
+                'headset': 'vol-headset'
+            };
+            const sliderId = sliderMap[device];
+            if (!sliderId) return;
+
+            const slider = document.getElementById(sliderId);
+            const valueEl = document.getElementById(`${sliderId}-value`);
+
+            if (document.activeElement !== slider) {
+                slider.value = Math.round(value * 100);
+                valueEl.textContent = `${Math.round(value * 100)}%`;
+            }
+        }
+
+        function updateMuteButton(device, muted) {
+            const btn = document.getElementById(`mute-${device.replace('_', '-')}`);
+            if (btn) {
+                btn.classList.toggle('muted', muted);
+                btn.innerHTML = muted ? '&#128263;' : '&#128266;';
+            }
+        }
+
+        // Real audio levels, fetched from /api/audio-levels (actual PipeWire
+        // signal, not simulated). The capture chain's monitor tap sits well
+        // below full scale, so a display-only gain makes the meter usable -
+        // it doesn't affect the raw values the API returns.
+        const METER_DISPLAY_GAIN = 8;
+
+        async function pollLevels() {
+            let levels;
+            try {
+                levels = await api('GET', '/audio-levels');
+            } catch (error) {
+                levels = {};
+            }
+
+            const devices = ['outdoor_mic', 'outdoor_speaker', 'headset'];
+            devices.forEach(device => {
+                const muted = currentState?.muted?.[device] || false;
+                const raw = levels[device] || { peak: 0, rms: 0 };
+                const targetLevel = muted ? 0 : Math.min(1, raw.rms * METER_DISPLAY_GAIN);
+                const targetPeak = muted ? 0 : Math.min(1, raw.peak * METER_DISPLAY_GAIN);
+
+                // Smooth transition
+                audioLevels[device] = audioLevels[device] * 0.6 + targetLevel * 0.4;
+
+                // Peak hold
+                if (targetPeak > peakLevels[device]) {
+                    peakLevels[device] = targetPeak;
+                    peakHoldTime[device] = 20; // Hold for 20 frames
+                } else if (peakHoldTime[device] > 0) {
+                    peakHoldTime[device]--;
+                } else {
+                    peakLevels[device] *= 0.95; // Decay
+                }
+
+                updateMeter(device, audioLevels[device], peakLevels[device]);
+            });
+
+        }
+
+        async function loadDenoiseSettings() {
+            try {
+                const result = await api('GET', '/denoise-settings');
+                const badge = document.getElementById('denoise-badge');
+                const attenInput = document.getElementById('denoise-atten');
+                if (badge) {
+                    badge.textContent = result.loaded ? 'Active' : 'Not loaded';
+                    badge.className = `badge ${result.loaded ? 'online' : 'offline'}`;
+                }
+                if (attenInput && document.activeElement !== attenInput) {
+                    attenInput.value = result.attenuation_limit_db;
+                }
+            } catch (error) {
+                console.error('Failed to load denoise settings:', error);
+            }
+        }
+
+        async function saveDenoiseSettings() {
+            const status = document.getElementById('denoise-save-status');
+            const attenuation_limit_db = parseFloat(document.getElementById('denoise-atten').value);
+
+            try {
+                await api('POST', '/denoise-settings', { attenuation_limit_db });
+                status.textContent = 'Applied.';
+                loadDenoiseSettings();
+            } catch (error) {
+                console.error('Failed to save denoise settings:', error);
+                status.textContent = error.message || 'Failed to apply.';
+            } finally {
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            }
+        }
+
+        // Sensor detection limits (steadiness gate + distance band + 3s-averaged arrival/departure hysteresis)
+        async function loadSensorSettings() {
+            try {
+                const result = await api('GET', '/sensor-settings');
+                const minInput = document.getElementById('sensor-min');
+                const maxInput = document.getElementById('sensor-max');
+                const arrivalInput = document.getElementById('sensor-arrival-hold');
+                const departureInput = document.getElementById('sensor-departure-hold');
+                const steadyInput = document.getElementById('sensor-steady');
+                const stableBadge = document.getElementById('sensor-stable-badge');
+                currentMinCm = result.detect_min_cm;
+                currentMaxCm = result.detect_max_cm;
+                if (minInput && document.activeElement !== minInput) {
+                    minInput.value = result.detect_min_cm;
+                }
+                if (maxInput && document.activeElement !== maxInput) {
+                    maxInput.value = result.detect_max_cm;
+                }
+                if (arrivalInput && document.activeElement !== arrivalInput) {
+                    arrivalInput.value = result.arrival_hold_sec;
+                }
+                if (departureInput && document.activeElement !== departureInput) {
+                    departureInput.value = result.departure_hold_sec;
+                }
+                if (steadyInput && document.activeElement !== steadyInput) {
+                    steadyInput.value = result.steady_sec;
+                }
+                if (stableBadge) {
+                    if (result.is_stable === null || result.is_stable === undefined) {
+                        stableBadge.textContent = '--';
+                        stableBadge.className = 'badge unknown';
+                    } else {
+                        stableBadge.textContent = result.is_stable ? 'Steady' : 'Noisy';
+                        stableBadge.className = `badge ${result.is_stable ? 'online' : 'offline'}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load sensor settings:', error);
+            }
+        }
+
+        async function saveSensorSettings() {
+            const status = document.getElementById('sensor-save-status');
+            const detect_min_cm = parseInt(document.getElementById('sensor-min').value, 10);
+            const detect_max_cm = parseInt(document.getElementById('sensor-max').value, 10);
+            const arrival_hold_sec = parseFloat(document.getElementById('sensor-arrival-hold').value);
+            const departure_hold_sec = parseFloat(document.getElementById('sensor-departure-hold').value);
+            const steady_sec = parseFloat(document.getElementById('sensor-steady').value);
+
+            try {
+                await api('POST', '/sensor-settings', { detect_min_cm, detect_max_cm, arrival_hold_sec, departure_hold_sec, steady_sec });
+                status.textContent = 'Applied.';
+                loadSensorSettings();
+            } catch (error) {
+                console.error('Failed to save sensor settings:', error);
+                status.textContent = error.message || 'Failed to apply.';
+            } finally {
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            }
+        }
+
+        async function resetSensor() {
+            const status = document.getElementById('sensor-reset-status');
+            status.textContent = 'Resetting...';
+            try {
+                await api('POST', '/sensor-reset');
+                status.textContent = 'Lane marked empty.';
+                pollState();
+            } catch (error) {
+                console.error('Failed to reset sensor:', error);
+                status.textContent = error.message || 'Failed to reset.';
+            } finally {
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            }
+        }
+
+        // Arrival chime selection / upload
+        async function loadChimeSettings() {
+            try {
+                const result = await api('GET', '/chime-settings');
+                const badge = document.getElementById('chime-badge');
+                const select = document.getElementById('chime-select');
+                const customOption = document.getElementById('chime-custom-option');
+                if (badge) {
+                    badge.textContent = result.selected.replace('_', ' ');
+                    badge.className = 'badge online';
+                }
+                if (customOption) {
+                    customOption.disabled = !result.custom_uploaded;
+                    customOption.textContent = result.custom_uploaded ? 'Custom (uploaded)' : 'Custom (none uploaded)';
+                }
+                if (select && document.activeElement !== select) {
+                    select.value = result.selected;
+                }
+            } catch (error) {
+                console.error('Failed to load chime settings:', error);
+            }
+        }
+
+        async function saveChimeSettings() {
+            const status = document.getElementById('chime-save-status');
+            const chime = document.getElementById('chime-select').value;
+
+            try {
+                await api('POST', '/chime-settings', { chime });
+                status.textContent = 'Applied.';
+                loadChimeSettings();
+            } catch (error) {
+                console.error('Failed to save chime settings:', error);
+                status.textContent = error.message || 'Failed to apply.';
+            } finally {
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            }
+        }
+
+        async function uploadChime() {
+            const status = document.getElementById('chime-upload-status');
+            const fileInput = document.getElementById('chime-upload');
+            const file = fileInput.files[0];
+            if (!file) {
+                status.textContent = 'Choose a .wav file first.';
+                setTimeout(() => { status.textContent = ''; }, 3000);
+                return;
+            }
+
+            status.textContent = 'Uploading...';
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const response = await fetch('/api/chime-upload', { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(body.detail || `HTTP ${response.status}`);
+                }
+                status.textContent = 'Uploaded - now playing on arrival.';
+                fileInput.value = '';
+                loadChimeSettings();
+            } catch (error) {
+                console.error('Chime upload failed:', error);
+                status.textContent = error.message || 'Upload failed.';
+            } finally {
+                setTimeout(() => { status.textContent = ''; }, 5000);
+            }
+        }
+
+        function updateMeter(device, level, peak) {
+            const deviceId = device.replace('_', '-');
+            const meter = document.getElementById(`meter-${deviceId}`);
+            const valueEl = document.getElementById(`meter-val-${deviceId}`);
+
+            if (meter) {
+                const percent = Math.min(100, level * 100);
+                meter.style.width = `${percent}%`;
+
+                // Peak indicator
+                const peakEl = meter.querySelector('.meter-peak');
+                if (peakEl) {
+                    const peakPercent = Math.min(100, peak * 100);
+                    peakEl.style.right = `${100 - peakPercent}%`;
+                }
+            }
+
+            if (valueEl) {
+                if (level < 0.01) {
+                    valueEl.textContent = '-∞ dB';
+                } else {
+                    const db = 20 * Math.log10(level);
+                    valueEl.textContent = `${db.toFixed(0)} dB`;
+                }
+            }
+        }
+
+        // Distance chart
+        function initDistanceChart() {
+            distanceCanvas = document.getElementById('distance-canvas');
+            distanceCtx = distanceCanvas.getContext('2d');
+
+            // Set canvas size
+            const rect = distanceCanvas.parentElement.getBoundingClientRect();
+            distanceCanvas.width = rect.width - 16;
+            distanceCanvas.height = rect.height - 16;
+        }
+
+        function drawDistanceChart() {
+            if (!distanceCtx || distanceHistory.length < 2) return;
+
+            const w = distanceCanvas.width;
+            const h = distanceCanvas.height;
+            const maxDist = 400;
+
+            distanceCtx.clearRect(0, 0, w, h);
+
+            // Draw the min/max detection band (shaded strip + dashed edges)
+            const minY = h - (Math.min(currentMinCm, maxDist) / maxDist) * h;
+            const maxY = h - (Math.min(currentMaxCm, maxDist) / maxDist) * h;
+            distanceCtx.fillStyle = 'rgba(204, 0, 0, 0.08)';
+            distanceCtx.fillRect(0, maxY, w, minY - maxY);
+
+            distanceCtx.strokeStyle = 'rgba(204, 0, 0, 0.4)';
+            distanceCtx.setLineDash([5, 5]);
+            distanceCtx.beginPath();
+            distanceCtx.moveTo(0, minY);
+            distanceCtx.lineTo(w, minY);
+            distanceCtx.moveTo(0, maxY);
+            distanceCtx.lineTo(w, maxY);
+            distanceCtx.stroke();
+            distanceCtx.setLineDash([]);
+
+            // Draw distance line
+            distanceCtx.strokeStyle = '#58a6ff';
+            distanceCtx.lineWidth = 2;
+            distanceCtx.beginPath();
+
+            const step = w / (MAX_DISTANCE_HISTORY - 1);
+            distanceHistory.forEach((dist, i) => {
+                const x = i * step;
+                const y = h - (Math.min(dist, maxDist) / maxDist) * h;
+                if (i === 0) {
+                    distanceCtx.moveTo(x, y);
+                } else {
+                    distanceCtx.lineTo(x, y);
+                }
+            });
+
+            distanceCtx.stroke();
+
+            // Fill area below line
+            distanceCtx.lineTo((distanceHistory.length - 1) * step, h);
+            distanceCtx.lineTo(0, h);
+            distanceCtx.closePath();
+            distanceCtx.fillStyle = 'rgba(0, 84, 227, 0.1)';
+            distanceCtx.fill();
+        }
+
+        // Update stats
+        async function updateStats() {
+            try {
+                const stats = await api('GET', '/stats');
+                document.getElementById('cars-today').textContent = stats.cars_today;
+
+                const mins = Math.floor(stats.avg_service_time_sec / 60);
+                const secs = Math.round(stats.avg_service_time_sec % 60);
+                document.getElementById('avg-time').textContent =
+                    `${mins}:${secs.toString().padStart(2, '0')}`;
+            } catch (error) {
+                // Ignore stats errors
+            }
+        }
+
+        // Waiting time
+        function startWaitingTimer() {
+            stopWaitingTimer();
+            updateWaitingTime();
+            waitingTimeInterval = setInterval(updateWaitingTime, 1000);
+        }
+
+        function stopWaitingTimer() {
+            if (waitingTimeInterval) {
+                clearInterval(waitingTimeInterval);
+                waitingTimeInterval = null;
+            }
+        }
+
+        function updateWaitingTime() {
+            if (!carArrivedAt) return;
+            const elapsed = Math.floor((Date.now() - carArrivedAt.getTime()) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            document.getElementById('waiting-time').textContent =
+                `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Volume control
+        function updateVolume(device, value) {
+            const volume = value / 100;
+            const displayMap = {
+                'outdoor_mic': 'vol-mic-value',
+                'outdoor_speaker': 'vol-speaker-value',
+                'headset': 'vol-headset-value'
+            };
+            document.getElementById(displayMap[device]).textContent = `${value}%`;
+
+            clearTimeout(volumeDebounce[device]);
+            volumeDebounce[device] = setTimeout(async () => {
+                try {
+                    await api('POST', '/volume', { device, volume });
+                } catch (error) {
+                    console.error('Failed to set volume:', error);
+                }
+            }, 100);
+        }
+
+        async function toggleMute(device) {
+            const currentMuted = currentState?.muted?.[device] || false;
+            try {
+                await api('POST', '/mute', { device, muted: !currentMuted });
+                await pollState();
+            } catch (error) {
+                console.error('Failed to toggle mute:', error);
+            }
+        }
+
+        // Output device testing (plays the chime through that device on the server)
+        async function testAudioDevice(device) {
+            const btn = document.getElementById(`test-btn-${device}`);
+            const status = document.getElementById('test-audio-status');
+            const label = device === 'outdoor_speaker' ? 'Outdoor Speaker' : 'Headset';
+
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = '...';
+            status.textContent = `Playing test sound to ${label}...`;
+
+            try {
+                await api('POST', '/test-audio', { device });
+                status.textContent = `Test sound sent to ${label}.`;
+            } catch (error) {
+                console.error('Test audio failed:', error);
+                status.textContent = `Failed to play test sound to ${label}: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                setTimeout(() => {
+                    if (status.textContent.includes(label)) status.textContent = '';
+                }, 4000);
+            }
+        }
+
+        async function testAudioRaw() {
+            const btn = document.getElementById('test-btn-raw');
+            const status = document.getElementById('test-audio-status');
+
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = '...';
+            status.textContent = 'Playing straight to hardware (bypassing PipeWire)...';
+
+            try {
+                const result = await api('POST', '/test-audio-raw');
+                status.textContent = result.message || 'Raw hardware test played.';
+            } catch (error) {
+                console.error('Raw hardware test failed:', error);
+                status.textContent = `Raw hardware test failed: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                setTimeout(() => {
+                    if (status.textContent.includes('hardware')) status.textContent = '';
+                }, 5000);
+            }
+        }
+
+        // Mode control
+        async function setMode(mode) {
+            try {
+                await api('POST', '/mode', { mode });
+                await pollState();
+            } catch (error) {
+                console.error('Failed to set mode:', error);
+            }
+        }
+
+        // PTT control
+        function setupPTT() {
+            const button = document.getElementById('ptt-button');
+
+            const startPTT = async (e) => {
+                e.preventDefault();
+                if (currentState?.audio_mode !== 'ptt') return;
+                try {
+                    await api('POST', '/ptt', { active: true });
+                    button.className = 'ptt-button active';
+                    button.textContent = '🎤 TRANSMITTING...';
+                } catch (error) {
+                    console.error('PTT start failed:', error);
+                }
+            };
+
+            const endPTT = async (e) => {
+                e.preventDefault();
+                if (currentState?.audio_mode !== 'ptt') return;
+                try {
+                    await api('POST', '/ptt', { active: false });
+                    button.className = 'ptt-button inactive';
+                    button.textContent = 'Hold to Talk';
+                } catch (error) {
+                    console.error('PTT end failed:', error);
+                }
+            };
+
+            button.addEventListener('mousedown', startPTT);
+            button.addEventListener('mouseup', endPTT);
+            button.addEventListener('mouseleave', endPTT);
+            button.addEventListener('touchstart', startPTT, { passive: false });
+            button.addEventListener('touchend', endPTT, { passive: false });
+            button.addEventListener('touchcancel', endPTT, { passive: false });
+        }
+
+        // Polling
+        async function pollState() {
+            try {
+                const state = await api('GET', '/state');
+                updateUI(state);
+            } catch (error) {
+                document.getElementById('error-banner').classList.add('visible');
+                document.getElementById('conn-dot').className = 'connection-dot disconnected';
+                document.getElementById('conn-status').textContent = 'Disconnected';
+            }
+        }
+
+        function startPolling() {
+            pollState();
+            updateStats();
+            pollInterval = setInterval(() => {
+                pollState();
+            }, 500);
+
+            // Levels poll faster for smoother meters
+            loadDenoiseSettings();
+            loadSensorSettings();
+            loadChimeSettings();
+            setInterval(pollLevels, 150);
+
+            // Sensor steadiness badge - worth refreshing more often than the
+            // other settings cards since it reflects live sensor noise
+            setInterval(loadSensorSettings, 1000);
+
+            // Stats less frequently
+            setInterval(updateStats, 5000);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            initDistanceChart();
+            drawDistanceChart();
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initDistanceChart();
+            setupPTT();
+            startPolling();
+        });
+    </script>
+</body>
+</html>

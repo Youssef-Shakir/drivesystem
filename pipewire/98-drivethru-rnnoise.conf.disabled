@@ -1,0 +1,69 @@
+# Drive-Thru Intercom - RNNoise Neural Noise Suppression
+# ========================================================
+# Copy this file to: ~/.config/pipewire/pipewire.conf.d/98-drivethru-rnnoise.conf
+#
+# Runs the outdoor mic through RNNoise (a small neural denoiser) before the
+# AEC stage in 99-drivethru-aec.conf. Unlike the voice-gate (which only
+# mutes between utterances) or WebRTC's built-in noise suppression (a
+# classical DSP filter), this continuously strips wind/engine/road noise
+# out of the signal even while someone is actively talking.
+#
+# The plugin is built from https://github.com/werman/noise-suppression-for-voice
+# (see pipewire/plugins/README.md for how it was built) and referenced here
+# by absolute path, so it doesn't need to be installed system-wide.
+#
+# After copying, restart PipeWire:
+#   systemctl --user restart pipewire pipewire-pulse wireplumber
+
+context.modules = [
+    {
+        name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {
+            node.description = "Drive-Thru RNNoise (outdoor mic)"
+            media.name       = "Drive-Thru RNNoise"
+            filter.graph = {
+                nodes = [
+                    {
+                        type   = ladspa
+                        name   = rnnoise
+                        # REPLACE with your actual installation path if different
+                        plugin = "/home/steve/drivesystem/pipewire/plugins/librnnoise_ladspa.so"
+                        label  = noise_suppressor_mono
+                        control = {
+                            # Frames below this confidence get hard-silenced.
+                            # 50 caused rapid on/off flapping on real (noisy,
+                            # distant) speech = robotic/choppy sound. The
+                            # plugin's docs recommend 85-95, but that's tuned
+                            # for a close-talk desktop mic where confidence
+                            # runs high; our outdoor mic sees real noise, so
+                            # confidence runs lower even on legitimate
+                            # speech. 75 trades some noise rejection for not
+                            # cutting into speech - lower this further if it
+                            # still clips words, raise it if noise leaks
+                            # through between utterances.
+                            "VAD Threshold (%)" = 75.0
+
+                            # Keeps passing audio for this long after the
+                            # last voice frame, so word endings don't get
+                            # chopped off by the hard gate above.
+                            "VAD Grace Period (ms)" = 300
+                        }
+                    }
+                ]
+            }
+            audio.rate = 48000
+            audio.channels = 1
+            capture.props = {
+                node.name = "dt_rnnoise_capture"
+                # REPLACE: your outdoor mic amp's raw hardware input node
+                node.target = "alsa_input.usb-Shenzhen_Jiayz_Photo_Industrial_Co._Ltd_MV-Mixer-00.analog-stereo"
+            }
+            playback.props = {
+                node.name = "dt_rnnoise_source"
+                node.description = "Drive-Thru Mic (Denoised)"
+                media.class = "Audio/Source"
+            }
+        }
+    }
+]

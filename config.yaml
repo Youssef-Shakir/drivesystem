@@ -1,0 +1,73 @@
+# Drive-Thru Intercom System Configuration
+# -----------------------------------------
+# Edit these values to match your hardware setup.
+# Run `pw-cli list-objects Node` to find your device node names.
+
+serial:
+  port: /dev/ttyUSB0
+  # 9600 - the actual connected car-distance sensor (a bare ultrasonic
+  # module streaming a plain "24.6\r\n" distance reading, no framing).
+  # 115200 is what the esp32/sensor_node firmware uses if that's ever
+  # swapped in instead - change this to match whatever's plugged in.
+  baudrate: 9600
+  heartbeat_timeout_sec: 15
+
+sensor:
+  # A car only counts as arrived once the 3-second-averaged distance
+  # reading is inside this band - closer than detect_min_cm or farther
+  # than detect_max_cm doesn't count.
+  detect_min_cm: 30
+  detect_max_cm: 150
+  arrival_hold_sec: 1.0
+  departure_hold_sec: 2.0
+  # How long (sec) the raw readings must stay steady (within ~15cm of each
+  # other) before they're trusted at all - a real car sitting still gives
+  # a steady reading, so this rejects the sensor spiking up/down with
+  # nothing actually in front of it. 0 disables this check.
+  steady_sec: 2.0
+
+audio:
+  # PipeWire node names - find yours with: pw-cli list-objects Node
+  # Look for alsa_input/alsa_output for USB devices, bluez for Bluetooth
+
+  # Behringer UMC202HD (outdoor mic input after AEC processing)
+  outdoor_mic: "dt_aec_source"
+
+  # Behringer UMC202HD (horn speaker output with AEC)
+  outdoor_speaker: "dt_aec_sink"
+
+  # Bluetooth headset sink (staff ears) - M890BT
+  headset_sink: "bluez_output.FC_58_FA_55_60_43.1"
+
+  # Bluetooth headset source (staff mic) - M890BT
+  headset_source: "bluez_input.FC_58_FA_55_60_43.0"
+
+  # Default volumes (0.0 - 1.5, where 1.0 = 100%)
+  default_volumes:
+    outdoor_mic: 1.3  # bumped from 1.0 - customer's voice was coming through quiet
+    outdoor_speaker: 0.8
+    headset: 1.0
+
+  # Audio mode: "full_duplex" or "ptt" (push-to-talk)
+  default_mode: "full_duplex"
+
+  # Path to chime sound file
+  chime_path: "server/assets/chimes/urgent.wav"
+
+denoise:
+  # DeepFilterNet neural noise suppression - runs after AEC, on the
+  # outdoor-mic -> headset path only (see pipewire/97-drivethru-deepfilter.conf).
+  # Attenuation Limit (dB): 0 = no noise reduction, 100 = full/unlimited
+  # reduction (can cut the voice mid-word - confirmed by testing). 40 is
+  # the value that removed road noise without audibly clipping speech in
+  # an offline A/B test against real in-car speech. Also editable live
+  # from the web dashboard - that takes effect immediately; this value is
+  # just what's applied at startup / after a PipeWire restart.
+  attenuation_limit_db: 70.0
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  path: "drivethru.db"

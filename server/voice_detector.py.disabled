@@ -1,0 +1,186 @@
+"""
+Voice activity detection for the outdoor mic, using Silero VAD (ONNX).
+
+Unlike a simple amplitude/energy threshold, this is a small neural model
+trained to recognize speech specifically - so it stays quiet through wind
+gusts and engine/road noise that would otherwise false-trigger a plain
+noise gate, and only flags "voice detected" when someone is actually
+talking.
+
+Runs as its own background pw-cat capture (like level_meter.py), feeding
+32ms frames through the model sequentially so its recurrent state tracks
+context between frames.
+"""
+
+import logging
+import subprocess
+import threading
+import time
+from pathlib import Path
+from typing import Callable, Optional
+
+import numpy as np
+import onnxruntime as ort
+
+logger = logging.getLogger(__name__)
+
+MODEL_PATH = Path(__file__).parent / "models" / "silero_vad.onnx"
+SAMPLE_RATE = 16000
+FRAME_SAMPLES = 512  # 32ms @ 16kHz, the size Silero VAD expects
+FRAME_BYTES = FRAME_SAMPLES * 2  # s16 mono
+RETRY_DELAY_SEC = 1.0
+
+
+class VoiceDetector:
+    """Runs Silero VAD on a live capture of one node, tracking a debounced voice-detected state."""
+
+    def __init__(
+        self,
+        node_name: str,
+        on_change: Optional[Callable[[bool], None]] = None,
+        high_threshold: float = 0.6,
+        hangover_sec: float = 0.6,
+    ):
+        self.node_name = node_name
+        self._on_change = on_change
+        # Tunable from the dashboard (see /api/voice-detection-settings) -
+        # a frame at/above high_threshold (re)starts the hangover window, so
+        # brief pauses between words don't flicker the indicator off and on.
+        self.high_threshold = high_threshold
+        self.hangover_sec = hangover_sec
+        self._probability = 0.0
+        self._detected = False
+        self._hangover_until = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._proc: Optional[subprocess.Popen] = None
+        self._thread: Optional[threading.Thread] = None
+        self._session: Optional[ort.InferenceSession] = None
+
+    def start(self) -> None:
+        if not MODEL_PATH.exists():
+            logger.error(f"Silero VAD model not found at {MODEL_PATH}")
+            return
+        # This model is tiny and called every 32ms - ONNX Runtime's default
+        # multi-threaded pool is pure overhead here, not a speedup.
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        self._session = ort.InferenceSession(
+            str(MODEL_PATH), sess_options=options, providers=["CPUExecutionProvider"]
+        )
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._proc:
+            self._proc.terminate()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    def set_target(self, node_name: str) -> None:
+        if node_name == self.node_name:
+            return
+        self.node_name = node_name
+        if self._proc:
+            self._proc.terminate()
+
+    def _run(self) -> None:
+        h = np.zeros((2, 1, 64), dtype=np.float32)
+        c = np.zeros((2, 1, 64), dtype=np.float32)
+        sr = np.array(SAMPLE_RATE, dtype=np.int64)
+
+        while not self._stop.is_set():
+            if not self.node_name:
+                time.sleep(RETRY_DELAY_SEC)
+                continue
+
+            try:
+                self._proc = subprocess.Popen(
+                    [
+                        "pw-cat", "--record", "--target", self.node_name,
+                        "--channels", "1", "--rate", str(SAMPLE_RATE), "--format", "s16", "-",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                buf = b""
+                while not self._stop.is_set():
+                    chunk = self._proc.stdout.read(FRAME_BYTES)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while len(buf) >= FRAME_BYTES:
+                        frame_bytes, buf = buf[:FRAME_BYTES], buf[FRAME_BYTES:]
+                        samples = np.frombuffer(frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                        out, h, c = self._session.run(
+                            None, {"input": samples[np.newaxis, :], "sr": sr, "h": h, "c": c}
+                        )
+                        probability = float(out[0][0])
+                        now = time.monotonic()
+                        with self._lock:
+                            self._probability = probability
+                            if probability >= self.high_threshold:
+                                self._hangover_until = now + self.hangover_sec
+                            new_detected = now < self._hangover_until
+                            changed = new_detected != self._detected
+                            self._detected = new_detected
+                        if changed and self._on_change:
+                            self._on_change(new_detected)
+            except FileNotFoundError:
+                logger.error("pw-cat not found - is pipewire-bin installed?")
+                return
+            except Exception as e:
+                logger.warning(f"Voice detector error on {self.node_name}: {e}")
+            finally:
+                if self._proc:
+                    self._proc.terminate()
+                    self._proc = None
+                h = np.zeros((2, 1, 64), dtype=np.float32)
+                c = np.zeros((2, 1, 64), dtype=np.float32)
+
+            with self._lock:
+                self._probability = 0.0
+                changed = self._detected
+                self._detected = False
+            if changed and self._on_change:
+                self._on_change(False)
+
+            if not self._stop.is_set():
+                time.sleep(RETRY_DELAY_SEC)
+
+    def set_params(self, high_threshold: float, hangover_sec: float) -> None:
+        self.high_threshold = high_threshold
+        self.hangover_sec = hangover_sec
+
+    def get_state(self) -> dict:
+        with self._lock:
+            return {
+                "detected": self._detected,
+                "probability": round(self._probability, 4),
+                "high_threshold": self.high_threshold,
+                "hangover_sec": self.hangover_sec,
+            }
+
+
+_detector: Optional[VoiceDetector] = None
+
+
+def get_voice_detector() -> Optional[VoiceDetector]:
+    return _detector
+
+
+def init_voice_detector(
+    node_name: str,
+    on_change: Optional[Callable[[bool], None]] = None,
+    high_threshold: float = 0.6,
+    hangover_sec: float = 0.6,
+) -> VoiceDetector:
+    global _detector
+    _detector = VoiceDetector(
+        node_name, on_change=on_change, high_threshold=high_threshold, hangover_sec=hangover_sec
+    )
+    _detector.start()
+    return _detector

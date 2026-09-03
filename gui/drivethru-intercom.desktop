@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Drive-Thru Intercom
+Comment=Drive-Thru Intercom System Control Panel
+Exec=/opt/drivethru/venv/bin/python /opt/drivethru/gui/main.py
+Icon=/opt/drivethru/gui/icon.png
+Terminal=false
+Categories=Utility;Audio;
+Keywords=intercom;drive-thru;audio;
+StartupNotify=true
+StartupWMClass=drivethru-intercom
+
+# For kiosk mode auto-start
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

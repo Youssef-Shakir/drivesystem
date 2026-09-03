@@ -1,0 +1,48 @@
+# Drive-Thru Intercom Server - systemd User Service
+# ==================================================
+# Install to: ~/.config/systemd/user/drivethru.service
+#
+# Setup commands:
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/drivethru.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable drivethru.service
+#   systemctl --user start drivethru.service
+#
+# Enable linger so service runs at boot (before user login):
+#   sudo loginctl enable-linger $USER
+#
+# View logs:
+#   journalctl --user -u drivethru.service -f
+
+[Unit]
+Description=Drive-Thru Intercom Server
+Documentation=https://github.com/your-org/drivethru
+After=network.target pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+
+# Set working directory to project root
+WorkingDirectory=/home/steve/drivesystem
+
+# Run the server
+ExecStart=/home/steve/drivesystem/.venv/bin/python -m uvicorn server.main:app --host 0.0.0.0 --port 8080
+
+# Always restart on failure
+Restart=always
+RestartSec=5
+
+# Give time to shutdown gracefully
+TimeoutStopSec=10
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+# Resource limits (adjust based on your hardware)
+# MemoryMax=512M
+# CPUQuota=50%
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,40 @@
+# Drive-Thru Intercom GUI - systemd User Service (Kiosk Mode)
+# ==============================================================
+# Auto-starts the PyQt6 GUI fullscreen once a graphical session is
+# available. Install to: ~/.config/systemd/user/drivethru-gui.service
+#
+# Setup commands:
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/drivethru-gui.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable drivethru-gui.service
+#
+# Enable linger so user services (and this one, once a graphical
+# session starts) can run without an interactive login:
+#   sudo loginctl enable-linger $USER
+#
+# View logs:
+#   journalctl --user -u drivethru-gui.service -f
+
+[Unit]
+Description=Drive-Thru Intercom GUI (Kiosk Mode)
+Documentation=https://github.com/your-org/drivethru
+After=graphical-session.target pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+
+# REPLACE with your actual installation path if different
+WorkingDirectory=/home/steve/drivesystem
+ExecStart=/home/steve/drivesystem/.venv/bin/python -m gui --fullscreen
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

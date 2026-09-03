@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime data (not source)
+drivethru.db
+*.log
+
+# Editor/OS cruft
+.DS_Store
