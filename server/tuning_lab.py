@@ -62,6 +62,19 @@ CONTROL_DEFAULTS = {
     "post_filter_beta": 0.0,
 }
 
+# (min, max) per port, straight from `analyseplugin libdeep_filter_ladspa.so`.
+# ffmpeg's ladspa filter hard-rejects (whole-graph init failure, not a
+# clamp) any value outside these - so anything a caller sends must be
+# clamped here first, not trusted as already-valid.
+CONTROL_RANGES = {
+    "atten_limit_db": (0.0, 100.0),
+    "min_proc_db": (-15.0, 35.0),
+    "max_erb_db": (-15.0, 35.0),
+    "max_df_db": (-15.0, 35.0),
+    "min_buf_frames": (0.0, 10.0),
+    "post_filter_beta": (0.0, 0.05),
+}
+
 # recordings/raw/2026-09-06_22h04.wav style filenames from recorder.py.
 _HOUR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}h\d{2}$")
 
@@ -176,7 +189,11 @@ def generate_candidate(hour_id: str, start_sec: float, duration_sec: float, cont
     clip = get_clip(hour_id, start_sec, duration_sec)
     raw_clip = CLIPS_DIR / clip["raw_token"]
 
-    values = [controls.get(name, CONTROL_DEFAULTS[name]) for name in CONTROL_PORTS]
+    values = []
+    for name in CONTROL_PORTS:
+        lo, hi = CONTROL_RANGES[name]
+        value = controls.get(name, CONTROL_DEFAULTS[name])
+        values.append(max(lo, min(hi, value)))
     controls_str = "|".join(f"{v:g}" for v in values)
 
     digest = hashlib.sha1(f"{hour_id}:{start_sec}:{duration_sec}:{controls_str}".encode()).hexdigest()[:16]

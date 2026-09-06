@@ -1857,8 +1857,14 @@
             if (!hour_id) { alert('Pick a recorded hour first.'); return; }
             const start_sec = parseFloat(document.getElementById('tuning-start-sec').value) || 0;
             const duration_sec = parseFloat(document.getElementById('tuning-duration-sec').value) || 12;
-            const atten_limit_db = parseFloat(document.getElementById('tuning-atten').value);
-            const post_filter_beta = parseFloat(document.getElementById('tuning-beta').value);
+            const attenInput = document.getElementById('tuning-atten');
+            const betaInput = document.getElementById('tuning-beta');
+            // Clamp to the plugin's actual ranges - it hard-rejects anything
+            // outside these (whole-graph init failure), it doesn't just clamp.
+            const atten_limit_db = Math.min(100, Math.max(0, parseFloat(attenInput.value) || 0));
+            const post_filter_beta = Math.min(0.05, Math.max(0, parseFloat(betaInput.value) || 0));
+            attenInput.value = atten_limit_db;
+            betaInput.value = post_filter_beta;
 
             try {
                 const result = await api('POST', '/tuning/candidate', {
