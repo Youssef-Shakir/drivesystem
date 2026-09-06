@@ -1609,6 +1609,55 @@
         </div>
 
         <div class="settings-section">
+            <h3>Mic Tuning Lab</h3>
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 6px;">
+                Runs the real DeepFilterNet filter offline against a clip from a recorded hour -
+                listen and compare before applying anything live. Nothing here touches the live call audio.
+            </div>
+            <div class="device-item">
+                <div class="info-row">
+                    <span class="info-label">Recorded hour</span>
+                    <select id="tuning-hour-select" style="flex: 1;"></select>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Clip start / length (sec)</span>
+                    <span style="display: flex; gap: 6px;">
+                        <input type="number" id="tuning-start-sec" min="0" step="1" value="0" style="width: 70px;">
+                        <input type="number" id="tuning-duration-sec" min="1" max="60" step="1" value="12" style="width: 60px;">
+                    </span>
+                </div>
+            </div>
+            <div class="device-item">
+                <button class="icon-btn" style="width: 100%;" onclick="loadTuningClip()">Load Clip</button>
+            </div>
+            <div id="tuning-clip-players" style="display: none;">
+                <div class="device-item">
+                    <div class="info-label" style="margin-bottom: 2px;">Raw (unprocessed mic)</div>
+                    <audio id="tuning-raw-audio" controls style="width: 100%;"></audio>
+                </div>
+                <div class="device-item" id="tuning-filtered-row" style="display: none;">
+                    <div class="info-label" style="margin-bottom: 2px;">Currently live (filtered)</div>
+                    <audio id="tuning-filtered-audio" controls style="width: 100%;"></audio>
+                </div>
+            </div>
+
+            <div class="device-item" style="border-top: 1px solid var(--border); padding-top: 8px; margin-top: 4px;">
+                <div class="info-row">
+                    <span class="info-label">Attenuation Limit (dB)</span>
+                    <input type="number" id="tuning-atten" min="0" max="100" step="1" value="70" style="width: 60px;">
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Post Filter Beta</span>
+                    <input type="number" id="tuning-beta" min="0" max="0.05" step="0.005" value="0" style="width: 60px;">
+                </div>
+            </div>
+            <div class="device-item">
+                <button class="icon-btn" style="width: 100%;" onclick="generateTuningCandidate()">Generate Candidate</button>
+            </div>
+            <div id="tuning-candidates"></div>
+        </div>
+
+        <div class="settings-section">
             <h3>Diagnostics Log</h3>
             <div class="device-item">
                 <button class="icon-btn" style="width: 100%;" onclick="loadLogs()">Refresh Log</button>
@@ -1682,6 +1731,7 @@
                 loadSettings();
                 loadRecordingStatus();
                 loadLogs();
+                loadTuningHours();
             }
         }
 
@@ -1753,6 +1803,101 @@
                 view.scrollTop = view.scrollHeight;
             } catch (e) {
                 console.error('Failed to load logs:', e);
+            }
+        }
+
+        async function loadTuningHours() {
+            const select = document.getElementById('tuning-hour-select');
+            try {
+                const result = await api('GET', '/tuning/hours');
+                const hours = result.hours || [];
+                if (hours.length === 0) {
+                    select.innerHTML = '<option value="">No recordings available</option>';
+                    return;
+                }
+                select.innerHTML = hours.map(h => {
+                    const label = h.hour_id.replace('_', ' ').replace('h', ':');
+                    const mins = Math.round(h.duration_sec / 60);
+                    const tag = h.has_filtered ? '' : ' (raw only)';
+                    return `<option value="${h.hour_id}">${label} (${mins}m)${tag}</option>`;
+                }).join('');
+            } catch (e) {
+                console.error('Failed to load tuning hours:', e);
+                select.innerHTML = '<option value="">Failed to load</option>';
+            }
+        }
+
+        function tuningAudioUrl(token) {
+            return token ? `/api/tuning/audio/${encodeURIComponent(token)}` : '';
+        }
+
+        async function loadTuningClip() {
+            const hour_id = document.getElementById('tuning-hour-select').value;
+            if (!hour_id) return;
+            const start_sec = parseFloat(document.getElementById('tuning-start-sec').value) || 0;
+            const duration_sec = parseFloat(document.getElementById('tuning-duration-sec').value) || 12;
+            try {
+                const clip = await api('POST', '/tuning/clip', { hour_id, start_sec, duration_sec });
+                document.getElementById('tuning-clip-players').style.display = '';
+                document.getElementById('tuning-raw-audio').src = tuningAudioUrl(clip.raw_token);
+                const filteredRow = document.getElementById('tuning-filtered-row');
+                if (clip.filtered_token) {
+                    filteredRow.style.display = '';
+                    document.getElementById('tuning-filtered-audio').src = tuningAudioUrl(clip.filtered_token);
+                } else {
+                    filteredRow.style.display = 'none';
+                }
+            } catch (e) {
+                alert(`Failed to load clip: ${e.message}`);
+            }
+        }
+
+        async function generateTuningCandidate() {
+            const hour_id = document.getElementById('tuning-hour-select').value;
+            if (!hour_id) { alert('Pick a recorded hour first.'); return; }
+            const start_sec = parseFloat(document.getElementById('tuning-start-sec').value) || 0;
+            const duration_sec = parseFloat(document.getElementById('tuning-duration-sec').value) || 12;
+            const atten_limit_db = parseFloat(document.getElementById('tuning-atten').value);
+            const post_filter_beta = parseFloat(document.getElementById('tuning-beta').value);
+
+            try {
+                const result = await api('POST', '/tuning/candidate', {
+                    hour_id, start_sec, duration_sec, atten_limit_db, post_filter_beta,
+                });
+                const list = document.getElementById('tuning-candidates');
+                const row = document.createElement('div');
+                row.className = 'device-item';
+                row.style.borderTop = '1px solid var(--border)';
+                row.style.paddingTop = '8px';
+                const m = result.metrics || {};
+                const noiseTxt = m.noise_reduction_db == null ? '-' : `${m.noise_reduction_db} dB`;
+                const speechTxt = m.speech_level_change_db == null ? '-' : `${m.speech_level_change_db} dB`;
+                row.innerHTML = `
+                    <div class="info-label" style="margin-bottom: 2px;">
+                        Attenuation ${atten_limit_db} dB, Beta ${post_filter_beta}
+                    </div>
+                    <audio controls style="width: 100%;" src="${tuningAudioUrl(result.token)}"></audio>
+                    <div style="font-size: 0.7rem; color: var(--text-secondary); margin: 4px 0;">
+                        Noise cut: ${noiseTxt} (quiet stretches) &middot;
+                        Speech level change: ${speechTxt} (negative = may be clipping words)
+                    </div>
+                    <button class="icon-btn" style="width: 100%;">Apply This Live</button>
+                `;
+                row.querySelector('button').onclick = () => applyTuningCandidate(atten_limit_db, post_filter_beta);
+                list.prepend(row);
+            } catch (e) {
+                alert(`Failed to generate candidate: ${e.message}`);
+            }
+        }
+
+        async function applyTuningCandidate(atten_limit_db, post_filter_beta) {
+            if (!confirm(`Apply Attenuation ${atten_limit_db} dB / Beta ${post_filter_beta} to the LIVE outdoor mic now?`)) return;
+            try {
+                await api('POST', '/denoise-settings', { attenuation_limit_db: atten_limit_db, post_filter_beta });
+                alert('Applied live.');
+                loadDenoiseSettings();
+            } catch (e) {
+                alert(`Failed to apply: ${e.message}`);
             }
         }
 

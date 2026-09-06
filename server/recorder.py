@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 RECORDINGS_DIR = Path(__file__).resolve().parent.parent / "recordings"
 STATE_PATH = RECORDINGS_DIR / "state.json"
 
+# Marker left behind by an explicit user stop (or a window completing on
+# its own) so a later service restart doesn't quietly start a brand-new
+# recording window - only an explicit start(resume=False) (the dashboard's
+# Start New button) removes it. Without this, stopping the recording and
+# then restarting the service for an unrelated reason (a deploy, a reboot)
+# would silently resurrect a fresh multi-day capture.
+_DISABLED_MARKER = RECORDINGS_DIR / ".recording_disabled"
+
 # The already-denoised signal actually sent to the headset today (see
 # 97-drivethru-deepfilter.conf's playback.props.node.name) - a fixed
 # internal PipeWire node name, not user-facing config, matching how
@@ -83,6 +91,12 @@ class TuningRecorder:
         if STATE_PATH.exists():
             STATE_PATH.unlink()
 
+    @staticmethod
+    def is_disabled() -> bool:
+        """True once the recorder has been explicitly stopped (or a window
+        completed on its own) and hasn't been explicitly re-started since."""
+        return _DISABLED_MARKER.exists()
+
     @property
     def end_at(self) -> Optional[datetime]:
         if self.started_at is None:
@@ -117,6 +131,9 @@ class TuningRecorder:
             return False
 
         if resume:
+            if self.is_disabled():
+                logger.info("Tuning recording was explicitly stopped previously - not auto-resuming")
+                return False
             state = self._load_state()
             if not state:
                 return False
@@ -129,11 +146,14 @@ class TuningRecorder:
                 logger.info("Tuning recording window already elapsed - not resuming")
                 self._clear_state()
                 self.started_at = None
+                _DISABLED_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                _DISABLED_MARKER.touch()
                 return False
             logger.info(f"Resuming tuning recording (started {self.started_at.isoformat()}, ends {self.end_at.isoformat()})")
         else:
             self.started_at = datetime.now()
             self._save_state()
+            _DISABLED_MARKER.unlink(missing_ok=True)
             logger.info(f"Starting tuning recording, ends {self.end_at.isoformat()}")
 
         self._stop_requested = False
@@ -170,6 +190,8 @@ class TuningRecorder:
         if clear_state:
             self._clear_state()
             self.started_at = None
+            _DISABLED_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            _DISABLED_MARKER.touch()
         logger.info(f"Tuning recording stopped (state {'cleared' if clear_state else 'kept for resume'})")
 
     async def _record_loop(self, label: str, node: str) -> None:

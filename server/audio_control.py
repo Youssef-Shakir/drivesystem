@@ -29,6 +29,7 @@ MIC_TO_HEADSET_NODE = "dt_loopback_mic_playback"
 # is why PipeWire prefixes every control port name with "deepfilter:".
 DENOISE_NODE_NAME = "dt_deepfilter_capture"
 DENOISE_ATTEN_PORT = "deepfilter:Attenuation Limit (dB)"
+DENOISE_BETA_PORT = "deepfilter:Post Filter Beta"
 
 
 class AudioController:
@@ -374,15 +375,14 @@ class AudioController:
 
         return self._play_sound_fire_and_forget(sink, sound_path)
 
-    def set_denoise_attenuation(self, atten_db: float) -> bool:
+    def _set_denoise_prop(self, prop_name: str, value: float) -> bool:
         """
-        Live-tune the DeepFilterNet outdoor-mic noise suppression without a
-        PipeWire restart. 0 = fully bypassed (no suppression), 100 = full/
-        unlimited suppression (this cut speech mid-word in testing - avoid).
+        Live-tune one DeepFilterNet LADSPA control port without a PipeWire
+        restart (every port the filter-chain exposes shows up as a Props
+        param on DENOISE_NODE_NAME the same way DENOISE_ATTEN_PORT does).
         No-op (returns False) if the filter isn't loaded, e.g. running
         against an older PipeWire config that predates 97-drivethru-deepfilter.conf.
         """
-        atten_db = max(0.0, min(100.0, atten_db))
         node_id = self._get_node_id(DENOISE_NODE_NAME)
         if node_id is None:
             logger.warning(f"Denoise node {DENOISE_NODE_NAME} not found - is 97-drivethru-deepfilter.conf loaded?")
@@ -391,16 +391,16 @@ class AudioController:
         try:
             self._run_command(
                 ["pw-cli", "set-param", str(node_id), "Props",
-                 f'{{ params = [ "{DENOISE_ATTEN_PORT}" {atten_db:.1f} ] }}'],
+                 f'{{ params = [ "{prop_name}" {value:.4f} ] }}'],
                 check=True,
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to set denoise attenuation: {e}")
+            logger.error(f"Failed to set {prop_name}: {e}")
             return False
 
-    def get_denoise_attenuation(self) -> Optional[float]:
-        """Read the DeepFilterNet node's current live Attenuation Limit (dB), if loaded."""
+    def _get_denoise_prop(self, prop_name: str) -> Optional[float]:
+        """Read one DeepFilterNet LADSPA control port's current live value, if loaded."""
         node_id = self._get_node_id(DENOISE_NODE_NAME)
         if node_id is None:
             return None
@@ -410,13 +410,37 @@ class AudioController:
             # controls as alternating String/Float lines in a "params" Struct.
             lines = result.stdout.splitlines()
             for i, line in enumerate(lines):
-                if DENOISE_ATTEN_PORT in line:
+                if prop_name in line:
                     value_line = lines[i + 1].strip()
                     if value_line.startswith("Float"):
                         return float(value_line.split()[1])
         except Exception as e:
-            logger.warning(f"Failed to read denoise attenuation: {e}")
+            logger.warning(f"Failed to read {prop_name}: {e}")
         return None
+
+    def set_denoise_attenuation(self, atten_db: float) -> bool:
+        """
+        0 = fully bypassed (no suppression), 100 = full/unlimited
+        suppression (this cut speech mid-word in testing - avoid).
+        """
+        return self._set_denoise_prop(DENOISE_ATTEN_PORT, max(0.0, min(100.0, atten_db)))
+
+    def get_denoise_attenuation(self) -> Optional[float]:
+        """Read the DeepFilterNet node's current live Attenuation Limit (dB), if loaded."""
+        return self._get_denoise_prop(DENOISE_ATTEN_PORT)
+
+    def set_denoise_post_filter_beta(self, beta: float) -> bool:
+        """
+        0 = post-filter disabled (the shipped default - see
+        97-drivethru-deepfilter.conf for why), up to 0.05 = plugin's max.
+        This was the other contributor to voice-clipping in earlier
+        testing alongside a too-high attenuation limit - raise cautiously.
+        """
+        return self._set_denoise_prop(DENOISE_BETA_PORT, max(0.0, min(0.05, beta)))
+
+    def get_denoise_post_filter_beta(self) -> Optional[float]:
+        """Read the DeepFilterNet node's current live Post Filter Beta, if loaded."""
+        return self._get_denoise_prop(DENOISE_BETA_PORT)
 
     def set_voice_gate_enabled(self, enabled: bool) -> None:
         """Enable/disable voice-gating. Disabling always leaves the mic->headset path open."""

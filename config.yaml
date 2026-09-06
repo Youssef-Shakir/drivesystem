@@ -71,6 +71,11 @@ denoise:
   # from the web dashboard - that takes effect immediately; this value is
   # just what's applied at startup / after a PipeWire restart.
   attenuation_limit_db: 70.0
+  # Post-filter stage - was a contributor to voice-clipping alongside a
+  # too-high attenuation limit, so it ships disabled (0.0). Range is
+  # 0.0-0.05 (the plugin's own max). Also live-tunable from the dashboard
+  # (Settings > Mic Tuning Lab).
+  post_filter_beta: 0.0
 
 recording:
   # Records two synchronized streams to recordings/raw/ and

@@ -71,6 +71,31 @@ class TestAudioRequest(BaseModel):
 class DenoiseSettingsUpdate(BaseModel):
     """Outdoor-mic noise suppression (DeepFilterNet) tuning update."""
     attenuation_limit_db: float
+    # Optional so older clients/requests that only send attenuation_limit_db
+    # keep working unchanged - None means "leave post_filter_beta as-is".
+    post_filter_beta: Optional[float] = None
+
+
+class TuningClipRequest(BaseModel):
+    """Request to cut a short listenable clip from a recorded hour, for the
+    offline Mic Tuning Lab."""
+    hour_id: str
+    start_sec: float = 0.0
+    duration_sec: float = 12.0
+
+
+class TuningCandidateRequest(BaseModel):
+    """Request to run the real DeepFilterNet plugin offline against a
+    recorded clip with the given control values, for the Mic Tuning Lab."""
+    hour_id: str
+    start_sec: float = 0.0
+    duration_sec: float = 12.0
+    atten_limit_db: float = 70.0
+    post_filter_beta: float = 0.0
+    min_proc_db: float = -15.0
+    max_erb_db: float = 35.0
+    max_df_db: float = 35.0
+    min_buf_frames: float = 3.0
 
 
 class SensorSettingsUpdate(BaseModel):

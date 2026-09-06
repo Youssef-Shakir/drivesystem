@@ -166,6 +166,28 @@ class Config:
         self._config_path.write_text(text)
         self.reload()
 
+    @property
+    def denoise_post_filter_beta(self) -> float:
+        return self._data.get("denoise", {}).get("post_filter_beta", 0.0)
+
+    def set_denoise_post_filter_beta(self, value: float) -> None:
+        """Persist the DeepFilterNet post-filter-beta tuning to config.yaml,
+        editing the line in place if present, else appending it under the
+        existing denoise: section (added after post_filter_beta shipped, so
+        an older config.yaml won't have the line yet)."""
+        text = self._config_path.read_text()
+        pattern = re.compile(r'^(\s*post_filter_beta:\s*).*$', re.MULTILINE)
+        if pattern.search(text):
+            text = pattern.sub(rf'\g<1>{value}', text, count=1)
+        else:
+            text = re.sub(
+                r'^(denoise:\s*\n(?:[ \t]+.*\n)*)',
+                rf'\g<1>  post_filter_beta: {value}\n',
+                text, count=1, flags=re.MULTILINE,
+            )
+        self._config_path.write_text(text)
+        self.reload()
+
     # Server settings
     @property
     def server_host(self) -> str:

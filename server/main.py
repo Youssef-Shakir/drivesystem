@@ -35,11 +35,14 @@ from .models import (
     Stats,
     SystemState,
     TestAudioRequest,
+    TuningCandidateRequest,
+    TuningClipRequest,
     VolumeUpdate,
 )
 from .presence_filter import PresenceFilter
 from .recorder import get_recorder, init_recorder
 from .serial_listener import SerialListener, init_serial_listener
+from . import tuning_lab
 
 # Configure logging (console + a rotating logs/drivethru.log file for
 # later diagnosis without needing journalctl)
@@ -246,6 +249,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # (no-op if 97-drivethru-deepfilter.conf isn't loaded, e.g. reverted).
     if audio.set_denoise_attenuation(config.denoise_attenuation_limit_db):
         logger.info(f"Denoise attenuation limit set to {config.denoise_attenuation_limit_db} dB")
+    if audio.set_denoise_post_filter_beta(config.denoise_post_filter_beta):
+        logger.info(f"Denoise post-filter beta set to {config.denoise_post_filter_beta}")
 
     # Keep the outdoor speaker muted until the headset is confirmed
     # connected. Without this, anything meant for staff (chime, test tones)
@@ -316,10 +321,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             duration_hours=config.recording_duration_hours,
         )
         started = await recorder.start(resume=True)
-        if not started:
+        if not started and not recorder.is_disabled():
+            # No previous window to resume, and it was never explicitly
+            # stopped either - this is a genuine first run, so start fresh.
             started = await recorder.start(resume=False)
         if started:
             logger.info(f"Tuning recording active until {recorder.end_at.isoformat()}")
+        elif recorder.is_disabled():
+            logger.info("Tuning recording not started - previously stopped; use the dashboard to start a new window")
     else:
         logger.warning("raw_outdoor_mic not configured - tuning recorder disabled")
 
@@ -742,10 +751,12 @@ async def get_denoise_settings():
     """
     config = get_config()
     audio = get_audio_controller()
-    live_value = await asyncio.to_thread(audio.get_denoise_attenuation)
+    live_atten = await asyncio.to_thread(audio.get_denoise_attenuation)
+    live_beta = await asyncio.to_thread(audio.get_denoise_post_filter_beta)
     return {
-        "attenuation_limit_db": live_value if live_value is not None else config.denoise_attenuation_limit_db,
-        "loaded": live_value is not None,
+        "attenuation_limit_db": live_atten if live_atten is not None else config.denoise_attenuation_limit_db,
+        "post_filter_beta": live_beta if live_beta is not None else config.denoise_post_filter_beta,
+        "loaded": live_atten is not None,
     }
 
 
@@ -755,7 +766,8 @@ async def update_denoise_settings(update: DenoiseSettingsUpdate):
     Live-tune outdoor-mic noise suppression - takes effect immediately, no
     PipeWire restart needed. 0 = fully bypassed, 100 = full/unlimited
     suppression (this cut speech mid-word in testing - the UI should warn
-    before letting it go that high).
+    before letting it go that high). post_filter_beta is optional -
+    omitting it (or sending null) leaves that setting untouched.
     """
     audio = get_audio_controller()
     ok = await asyncio.to_thread(audio.set_denoise_attenuation, update.attenuation_limit_db)
@@ -767,7 +779,69 @@ async def update_denoise_settings(update: DenoiseSettingsUpdate):
 
     config = get_config()
     config.set_denoise_attenuation_limit_db(update.attenuation_limit_db)
-    return {"status": "ok", "attenuation_limit_db": update.attenuation_limit_db}
+
+    if update.post_filter_beta is not None:
+        await asyncio.to_thread(audio.set_denoise_post_filter_beta, update.post_filter_beta)
+        config.set_denoise_post_filter_beta(update.post_filter_beta)
+
+    return {
+        "status": "ok",
+        "attenuation_limit_db": update.attenuation_limit_db,
+        "post_filter_beta": update.post_filter_beta,
+    }
+
+
+@app.get("/api/tuning/hours")
+async def tuning_list_hours():
+    """List recorded hours available to the offline Mic Tuning Lab (see
+    server/tuning_lab.py) - only ones with a usable, non-empty raw
+    capture, newest first."""
+    return {"hours": await asyncio.to_thread(tuning_lab.list_hours)}
+
+
+@app.post("/api/tuning/clip")
+async def tuning_get_clip(req: TuningClipRequest):
+    """Cut a short raw(+filtered) clip from a recorded hour for
+    listening/processing."""
+    try:
+        return await asyncio.to_thread(tuning_lab.get_clip, req.hour_id, req.start_sec, req.duration_sec)
+    except tuning_lab.TuningLabError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/tuning/candidate")
+async def tuning_generate_candidate(req: TuningCandidateRequest):
+    """Run the real DeepFilterNet plugin offline (via ffmpeg's LADSPA host)
+    against a recorded clip with the given control values - no live audio
+    is touched. Returns a playable token plus rough before/after level
+    metrics (see tuning_lab._compare_levels for what these do and don't mean)."""
+    controls = {
+        "atten_limit_db": req.atten_limit_db,
+        "post_filter_beta": req.post_filter_beta,
+        "min_proc_db": req.min_proc_db,
+        "max_erb_db": req.max_erb_db,
+        "max_df_db": req.max_df_db,
+        "min_buf_frames": req.min_buf_frames,
+    }
+    try:
+        return await asyncio.to_thread(
+            tuning_lab.generate_candidate, req.hour_id, req.start_sec, req.duration_sec, controls,
+        )
+    except tuning_lab.TuningLabError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/tuning/audio/{token}")
+async def tuning_get_audio(token: str):
+    """Serve a clip or candidate WAV previously generated by this lab, for
+    browser <audio> playback - this is how you actually hear the recorded
+    mic on a device that has speakers, since the drive-thru box itself
+    doesn't. token must resolve inside recordings/tuning/ (see
+    tuning_lab.resolve_audio_token) - nothing else is servable this way."""
+    path = tuning_lab.resolve_audio_token(token)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, media_type="audio/wav")
 
 
 @app.get("/api/sensor-settings")
