@@ -50,8 +50,8 @@ audio:
 
   # Default volumes (0.0 - 1.5, where 1.0 = 100%)
   default_volumes:
-    outdoor_mic: 1.3  # bumped from 1.0 - customer's voice was coming through quiet
-    outdoor_speaker: 0.8
+    outdoor_mic: 1.5  # bumped from 1.0 - customer's voice was coming through quiet
+    outdoor_speaker: 0.58
     headset: 1.0      # staff's ears only (what plays into the headset)
     indoor_mic: 1.0    # staff's mic only (what the headset picks up from staff)
 
@@ -80,12 +80,14 @@ denoise:
 recording:
   # Records two synchronized streams to recordings/raw/ and
   # recordings/filtered/ (hourly .wav chunks) for offline AI-assisted
-  # tuning of the outdoor mic's AEC/noise-filter settings - starts
-  # automatically when the server starts and stops itself after this many
-  # hours. Restarting the service mid-window resumes the same window
-  # rather than starting a new one. Also controllable from the dashboard
-  # (Settings > Mic Tuning Recording).
-  duration_hours: 48
+  # tuning of the outdoor mic's AEC/noise-filter settings - started/stopped
+  # on demand from the dashboard (Settings > Mic Tuning Recording).
+  # Left unset (or null): no fixed duration, records until you hit Stop.
+  # Set a number of hours here instead if you want it to auto-stop itself
+  # after a fixed window (and auto-start once at server boot) - in that
+  # mode, restarting the service mid-window resumes the same window
+  # rather than starting a new one.
+  duration_hours: null
 
 security:
   # PIN required to open the dashboard - a shared-terminal deterrent, not

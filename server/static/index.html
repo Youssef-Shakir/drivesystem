@@ -1744,7 +1744,8 @@
         }
 
         function formatRemaining(sec) {
-            if (!sec || sec <= 0) return '0h';
+            if (sec == null) return 'no limit';
+            if (sec <= 0) return '0h';
             const h = Math.floor(sec / 3600);
             const m = Math.floor((sec % 3600) / 60);
             return `${h}h ${m}m left`;
@@ -1767,7 +1768,7 @@
                 }
 
                 statusEl.textContent = s.running ? `Recording (${formatRemaining(s.remaining_sec)})` : 'Stopped';
-                endsEl.textContent = s.ends_at ? new Date(s.ends_at).toLocaleString() : '-';
+                endsEl.textContent = s.ends_at ? new Date(s.ends_at).toLocaleString() : (s.running ? 'No limit' : '-');
                 const f = s.files_written || {};
                 filesEl.textContent = `${f.raw || 0} / ${f.filtered || 0}`;
                 errEl.textContent = s.last_error ? `Last error: ${s.last_error}` : '';

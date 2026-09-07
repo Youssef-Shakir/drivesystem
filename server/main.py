@@ -326,7 +326,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # stopped either - this is a genuine first run, so start fresh.
             started = await recorder.start(resume=False)
         if started:
-            logger.info(f"Tuning recording active until {recorder.end_at.isoformat()}")
+            ends_desc = recorder.end_at.isoformat() if recorder.end_at else "no limit - until stopped"
+            logger.info(f"Tuning recording active, ends {ends_desc}")
         elif recorder.is_disabled():
             logger.info("Tuning recording not started - previously stopped; use the dashboard to start a new window")
     else:

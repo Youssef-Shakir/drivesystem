@@ -14,11 +14,13 @@ what today's pipeline produced, to study what a better tuning would sound
 like. Neither stream feeds into the live call audio path - this only taps
 existing nodes as an extra read-only consumer.
 
-Runs for a fixed window (default 48h) starting from whenever it's first
-started, and resumes across a service restart from the ORIGINAL start
-time (persisted in recordings/state.json) rather than restarting the
-clock - so a mid-window PipeWire/service restart doesn't quietly extend
-the capture past what was asked for.
+Runs until explicitly stopped by default (duration_hours=None) - no need
+to decide up front how many hours/days to capture. Optionally runs for a
+fixed window instead (duration_hours set to a number), in which case it
+resumes across a service restart from the ORIGINAL start time (persisted
+in recordings/state.json) rather than restarting the clock - so a
+mid-window PipeWire/service restart doesn't quietly extend the capture
+past what was asked for.
 """
 
 import asyncio
@@ -59,7 +61,7 @@ RETRY_BACKOFF_SEC = 15.0
 
 
 class TuningRecorder:
-    def __init__(self, raw_node: str, filtered_node: str = FILTERED_NODE, duration_hours: float = 48.0):
+    def __init__(self, raw_node: str, filtered_node: str = FILTERED_NODE, duration_hours: Optional[float] = None):
         self.raw_node = raw_node
         self.filtered_node = filtered_node
         self.duration_hours = duration_hours
@@ -99,7 +101,8 @@ class TuningRecorder:
 
     @property
     def end_at(self) -> Optional[datetime]:
-        if self.started_at is None:
+        """None means no fixed end - runs until stop() is called."""
+        if self.started_at is None or self.duration_hours is None:
             return None
         return self.started_at + timedelta(hours=self.duration_hours)
 
@@ -110,7 +113,12 @@ class TuningRecorder:
     def status(self) -> dict:
         now = datetime.now()
         running = self.is_running
-        remaining_sec = max(0.0, (self.end_at - now).total_seconds()) if (running and self.end_at) else 0.0
+        if not running:
+            remaining_sec = 0.0
+        elif self.end_at is None:
+            remaining_sec = None  # unlimited - no countdown
+        else:
+            remaining_sec = max(0.0, (self.end_at - now).total_seconds())
         return {
             "running": running,
             "started_at": self.started_at.isoformat() if self.started_at else None,
@@ -142,19 +150,21 @@ class TuningRecorder:
             except (KeyError, ValueError):
                 return False
             self.duration_hours = state.get("duration_hours", self.duration_hours)
-            if datetime.now() >= self.end_at:
+            if self.end_at and datetime.now() >= self.end_at:
                 logger.info("Tuning recording window already elapsed - not resuming")
                 self._clear_state()
                 self.started_at = None
                 _DISABLED_MARKER.parent.mkdir(parents=True, exist_ok=True)
                 _DISABLED_MARKER.touch()
                 return False
-            logger.info(f"Resuming tuning recording (started {self.started_at.isoformat()}, ends {self.end_at.isoformat()})")
+            ends_desc = self.end_at.isoformat() if self.end_at else "no limit - until stopped"
+            logger.info(f"Resuming tuning recording (started {self.started_at.isoformat()}, ends {ends_desc})")
         else:
             self.started_at = datetime.now()
             self._save_state()
             _DISABLED_MARKER.unlink(missing_ok=True)
-            logger.info(f"Starting tuning recording, ends {self.end_at.isoformat()}")
+            ends_desc = self.end_at.isoformat() if self.end_at else "no limit - until stopped"
+            logger.info(f"Starting tuning recording, ends {ends_desc}")
 
         self._stop_requested = False
         self.last_error = None
@@ -202,6 +212,9 @@ class TuningRecorder:
                 if self.end_at and now >= self.end_at:
                     logger.info(f"Tuning recording ({label}): {self.duration_hours}h window complete")
                     break
+                # self.end_at is None here means no fixed window - loop
+                # forever (one hourly chunk at a time) until stop() cancels
+                # these tasks.
 
                 chunk_sec = CHUNK_SEC
                 if self.end_at:
@@ -261,7 +274,7 @@ def get_recorder() -> Optional[TuningRecorder]:
     return _recorder
 
 
-def init_recorder(raw_node: str, filtered_node: str = FILTERED_NODE, duration_hours: float = 48.0) -> TuningRecorder:
+def init_recorder(raw_node: str, filtered_node: str = FILTERED_NODE, duration_hours: Optional[float] = None) -> TuningRecorder:
     global _recorder
     _recorder = TuningRecorder(raw_node, filtered_node, duration_hours)
     return _recorder

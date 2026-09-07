@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 
@@ -250,8 +250,12 @@ class Config:
 
     # Tuning recorder
     @property
-    def recording_duration_hours(self) -> float:
-        return self._data.get("recording", {}).get("duration_hours", 48.0)
+    def recording_duration_hours(self) -> Optional[float]:
+        """None (the default) means no fixed duration - start/stop the
+        tuning recorder on demand from the dashboard instead of committing
+        to a number of hours/days up front. Set a number here only if you
+        want it to auto-stop itself after a fixed window again."""
+        return self._data.get("recording", {}).get("duration_hours")
 
     # Database settings
     @property
