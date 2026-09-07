@@ -125,6 +125,31 @@ class Config:
         defaults.update(self._data.get("audio", {}).get("default_volumes", {}))
         return defaults
 
+    def set_default_volume(self, device: str, value: float) -> None:
+        """
+        Persist a live volume change (from /api/volume) into
+        audio.default_volumes, so it's what gets re-applied on the next
+        service restart or reboot instead of resetting to whatever
+        config.yaml last had - editing the value in place so comments and
+        the other three volumes are left untouched. If the key doesn't
+        exist yet (a config.yaml from before this device existed), it's
+        appended under the default_volumes: block instead.
+        """
+        if device not in ("outdoor_mic", "outdoor_speaker", "headset", "indoor_mic"):
+            return
+        text = self._config_path.read_text()
+        pattern = re.compile(rf'^(\s*{re.escape(device)}:\s*)[0-9.]+(.*)$', re.MULTILINE)
+        if pattern.search(text):
+            text = pattern.sub(lambda m: f"{m.group(1)}{value}{m.group(2)}", text, count=1)
+        else:
+            text = re.sub(
+                r'^(\s*default_volumes:\s*\n(?:[ \t]+.*\n)*)',
+                rf'\g<1>    {device}: {value}\n',
+                text, count=1, flags=re.MULTILINE,
+            )
+        self._config_path.write_text(text)
+        self.reload()
+
     @property
     def default_audio_mode(self) -> str:
         return self._data.get("audio", {}).get("default_mode", "full_duplex")

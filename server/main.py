@@ -513,7 +513,9 @@ async def get_stats():
 
 @app.post("/api/volume")
 async def set_volume(update: VolumeUpdate):
-    """Set volume for a device."""
+    """Set volume for a device - takes effect immediately and is persisted
+    to config.yaml so it survives a service restart or reboot instead of
+    resetting to the old baked-in default."""
     audio = get_audio_controller()
     if update.device not in ("outdoor_mic", "outdoor_speaker", "headset", "indoor_mic"):
         raise HTTPException(status_code=400, detail=f"Unknown device: {update.device}")
@@ -522,6 +524,7 @@ async def set_volume(update: VolumeUpdate):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to set volume")
 
+    get_config().set_default_volume(update.device, update.volume)
     return {"status": "ok", "device": update.device, "volume": update.volume}
 
 
