@@ -106,6 +106,14 @@ class Config:
         return self._data.get("audio", {}).get("headset_source", "")
 
     @property
+    def bluetooth_adapter(self) -> str:
+        """MAC of the Bluetooth controller to pin every bluetoothctl call
+        to (see bluetooth_control.set_adapter) - empty/unset trusts BlueZ's
+        own default controller, which only works with exactly one adapter
+        in the system. Find yours with `bluetoothctl list`."""
+        return self._data.get("audio", {}).get("bluetooth_adapter", "")
+
+    @property
     def raw_outdoor_mic_node(self) -> str:
         """Pre-AEC/pre-filter outdoor mic hardware input - used only by the
         tuning recorder (recordings/raw/), not part of the live call path."""

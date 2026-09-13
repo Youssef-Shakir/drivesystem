@@ -260,6 +260,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # it the moment the headset actually connects.
     audio.set_mute("outdoor_speaker", True)
 
+    # Pin every bluetoothctl call to a specific controller before touching
+    # Bluetooth at all - see bluetooth_control.set_adapter's docstring for
+    # why this matters as soon as more than one adapter is present.
+    if config.bluetooth_adapter:
+        bluetooth_control.set_adapter(config.bluetooth_adapter)
+        logger.info(f"Bluetooth pinned to adapter {config.bluetooth_adapter}")
+
     # Actively connect the configured headset at startup - BlueZ's own
     # auto-reconnect for a trusted/paired device isn't reliable enough on
     # its own (confirmed: doesn't consistently happen across restarts).

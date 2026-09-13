@@ -9,6 +9,7 @@ route to it.
 import json
 import logging
 import re
+import select as _select_mod
 import subprocess
 import time
 from typing import Optional
@@ -17,6 +18,33 @@ logger = logging.getLogger(__name__)
 
 MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 _DEVICE_LINE_RE = re.compile(r"^Device\s+([0-9A-Fa-f:]{17})\s+(.*)$")
+
+# Which Bluetooth controller (by its own MAC) every bluetoothctl call below
+# should be pinned to - see set_adapter(). None means "trust bluez's own
+# default controller", which is only safe with exactly one adapter present.
+_adapter: Optional[str] = None
+
+
+def set_adapter(mac: Optional[str]) -> None:
+    """
+    Pin every bluetoothctl interaction in this module to a specific
+    controller, instead of relying on BlueZ's "default controller"
+    tracking.
+
+    Found the hard way: plugging in a second USB Bluetooth adapter made
+    BlueZ silently switch its default controller to it - permanently, even
+    after the new adapter was powered back off - so every one-shot
+    `bluetoothctl <cmd> <mac>` call in this file (which never specified a
+    controller) started transparently targeting the new, never-paired
+    adapter instead of the one the headset was actually bonded to. No
+    error surfaced at the time it flipped; it only showed up later as
+    "Device ... not available" on every reconnect attempt, and as
+    is_connected() reporting false even while audio was genuinely working
+    over the correct adapter. Pass None to go back to trusting bluez's
+    default (only correct with a single adapter in the system).
+    """
+    global _adapter
+    _adapter = mac
 
 
 def is_valid_mac(mac: str) -> bool:
@@ -37,8 +65,108 @@ def mac_from_node_name(node_name: str) -> Optional[str]:
     return match.group(1).replace("_", ":").upper()
 
 
+# Commands whose real result is printed asynchronously, on their own
+# timeline, well after the command itself is accepted - a period of no new
+# output from these does NOT mean they're done (unlike e.g. "info" or
+# "power", which reply synchronously and go quiet the instant they're
+# finished). _run_scripted must not use its idle-quiet shortcut for these;
+# it has to keep waiting (up to the full timeout) for one of its markers
+# below instead.
+#
+# Markers are per-command, not a shared global set: bluetoothctl prints a
+# "Connected: yes" property-change line as part of a *pair* operation too
+# (pairing implicitly connects first), so a global marker list would let
+# an in-flight pair stop early on that line and return failure, never
+# reaching "Paired: yes"/"Pairing successful" - confirmed live, this
+# exact bug shipped once already. Each command only reacts to its own
+# markers.
+_ASYNC_MARKERS = {
+    "connect": ("Connection successful", "already connected", "Connected: yes", "Failed to connect", "org.bluez.Error"),
+    "pair": ("Pairing successful", "already paired", "Failed to pair", "org.bluez.Error"),
+    "disconnect": ("Successful disconnected", "Connected: no", "Failed to disconnect", "org.bluez.Error"),
+}
+
+
+def _run_scripted(commands: list[str], timeout: float) -> str:
+    """
+    Run one or more bluetoothctl commands in a single interactive session
+    (piped through stdin) and return everything it printed.
+
+    This exists only because bluetoothctl's one-shot CLI form
+    (`bluetoothctl <cmd> <args>`) has no `--adapter`/`-a` flag (checked:
+    `bluetoothctl --help` - only "select" as an in-session command
+    selects a controller) and doesn't accept multiple commands as argv
+    either (checked: `bluetoothctl select X connect Y` -> "Too many
+    arguments") - so combining "select <adapter>" with the real command
+    requires a scripted interactive session.
+
+    The subtlety that makes this more than a one-line pipe: writing the
+    whole script to stdin and then hitting EOF makes bluetoothctl quit
+    immediately once it's *accepted* an async command like "connect",
+    before that command's actual result line has printed - so an early,
+    naive version of this raced every connect/pair call and always
+    reported failure. Fixed by watching the output as it streams in:
+    stop as soon as a recognized terminal marker for connect/pair/
+    disconnect appears, otherwise (synchronous commands like info/power/
+    devices) stop once output goes quiet for a short moment past a
+    minimum settle time - and only ever fall back to the full `timeout`
+    as a last resort.
+    """
+    # "select <adapter>" is never the operative command - find the real
+    # one to know which markers (if any) apply.
+    op_command = next((cmd.split()[0] for cmd in commands if cmd.split() and cmd.split()[0] != "select"), None)
+    markers = _ASYNC_MARKERS.get(op_command, ())
+    is_async = op_command in _ASYNC_MARKERS
+    proc = subprocess.Popen(
+        ["bluetoothctl"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, bufsize=1,
+    )
+    output: list[str] = []
+    start = time.monotonic()
+    deadline = start + timeout
+    last_data_at = start
+    try:
+        proc.stdin.write("\n".join(commands) + "\n")
+        proc.stdin.flush()
+
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            ready, _, _ = _select_mod.select([proc.stdout], [], [], min(0.3, deadline - now))
+            if ready:
+                line = proc.stdout.readline()
+                if line == "":
+                    break  # bluetoothctl exited on its own
+                output.append(line)
+                last_data_at = time.monotonic()
+                if markers and any(marker in line for marker in markers):
+                    break
+            elif not is_async and (now - last_data_at > 0.5) and (now - start > 0.3):
+                break
+    finally:
+        try:
+            proc.stdin.write("quit\n")
+            proc.stdin.flush()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    return "".join(output)
+
+
 def _run(args: list[str], timeout: float = 10) -> subprocess.CompletedProcess:
-    """Run a one-shot bluetoothctl command."""
+    """Run a one-shot bluetoothctl command, pinned to _adapter if set."""
+    if _adapter:
+        stdout = _run_scripted([f"select {_adapter}", " ".join(args)], timeout=timeout)
+        return subprocess.CompletedProcess(args=["bluetoothctl", *args], returncode=0, stdout=stdout, stderr="")
     return subprocess.run(
         ["bluetoothctl", *args],
         capture_output=True,
@@ -75,8 +203,33 @@ def scan(duration: float = 8.0) -> list[dict]:
     devices: dict[str, str] = {}
 
     try:
-        result = _run(["--timeout", str(int(duration)), "scan", "on"], timeout=duration + 5)
-        devices.update(_parse_device_lines(result.stdout))
+        if _adapter:
+            # The one-shot `--timeout scan on` form can't also select a
+            # controller first (see _run_scripted's docstring), and
+            # scanning needs a real wall-clock wait, not just a scripted
+            # command sequence - so this drives bluetoothctl interactively
+            # instead, with its own explicit sleep rather than
+            # _run_scripted's marker/idle detection (scan output is
+            # sporadic CHG/NEW lines the whole time, not a single settling
+            # result).
+            proc = subprocess.Popen(
+                ["bluetoothctl"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True,
+            )
+            try:
+                proc.stdin.write(f"select {_adapter}\npower on\nscan on\n")
+                proc.stdin.flush()
+                time.sleep(duration)
+                proc.stdin.write("devices\nscan off\n")
+                proc.stdin.close()
+                stdout, _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, _ = proc.communicate()
+            devices.update(_parse_device_lines(stdout))
+        else:
+            result = _run(["--timeout", str(int(duration)), "scan", "on"], timeout=duration + 5)
+            devices.update(_parse_device_lines(result.stdout))
     except subprocess.TimeoutExpired:
         logger.warning("Bluetooth scan timed out")
     except Exception as e:
@@ -217,12 +370,24 @@ def connect(mac: str) -> tuple[bool, str]:
     if not is_valid_mac(mac):
         return False, "Invalid MAC address"
 
+    # bluetoothctl's one-shot CLI form ("bluetoothctl connect <mac>") has
+    # its own fast path for an already-connected device and prints
+    # "already connected" right away; the scripted interactive session
+    # _run uses when _adapter is pinned (see _run_scripted) doesn't get
+    # that special-casing - asking it to "connect" a device that's
+    # already connected can print nothing further at all, burning the
+    # full timeout for no reason. Cheap to just check first.
+    if is_connected(mac):
+        force_headset_profile(mac)
+        return True, "already connected"
+
     last_output = "Connect failed"
     for attempt in range(3):
         try:
             result = _run(["connect", mac], timeout=20)
             output = result.stdout + result.stderr
-            if "Connection successful" in output or "already connected" in output.lower():
+            if ("Connection successful" in output or "already connected" in output.lower()
+                    or "Connected: yes" in output):
                 force_headset_profile(mac)
                 return True, output.strip()
             last_output = output.strip() or last_output

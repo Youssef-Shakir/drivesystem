@@ -42,6 +42,16 @@ audio:
   # Bluetooth headset source (staff mic) - M890BT
   headset_source: "bluez_input.FC_58_FA_55_60_43.0"
 
+  # Which Bluetooth controller to use, by its own MAC (find with
+  # `bluetoothctl list`) - NOT the headset's MAC above. Required as soon as
+  # more than one adapter is plugged in: BlueZ silently makes the most
+  # recently added adapter its "default", permanently, even after it's
+  # powered back off - so without this, the headset can be fully paired
+  # and working and every reconnect attempt still fails with
+  # "Device ... not available" because it's silently targeting the wrong
+  # adapter. 74:E5:F9:40:E5:8D is this box's built-in adapter.
+  bluetooth_adapter: "74:E5:F9:40:E5:8D"
+
   # Raw, pre-AEC/pre-filter outdoor mic hardware input - not part of the
   # live call path, used only by the tuning recorder (see recordings:
   # below) so it has an unprocessed reference to compare against the
@@ -50,10 +60,10 @@ audio:
 
   # Default volumes (0.0 - 1.5, where 1.0 = 100%)
   default_volumes:
-    outdoor_mic: 1.5  # bumped from 1.0 - customer's voice was coming through quiet
-    outdoor_speaker: 0.58
-    headset: 1.0      # staff's ears only (what plays into the headset)
-    indoor_mic: 1.0    # staff's mic only (what the headset picks up from staff)
+    outdoor_mic: 1.05  # bumped from 1.0 - customer's voice was coming through quiet
+    outdoor_speaker: 0.65
+    headset: 1.18      # staff's ears only (what plays into the headset)
+    indoor_mic: 0.86    # staff's mic only (what the headset picks up from staff)
 
   # Audio mode: "full_duplex" or "ptt" (push-to-talk)
   default_mode: "full_duplex"
@@ -75,7 +85,7 @@ denoise:
   # too-high attenuation limit, so it ships disabled (0.0). Range is
   # 0.0-0.05 (the plugin's own max). Also live-tunable from the dashboard
   # (Settings > Mic Tuning Lab).
-  post_filter_beta: 0.05
+  post_filter_beta: 0.0
 
 recording:
   # Records two synchronized streams to recordings/raw/ and
