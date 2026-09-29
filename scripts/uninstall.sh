@@ -1,62 +1,56 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Drive-Thru Intercom System Uninstaller
+# Drive-Thru Intercom System - Uninstaller
+# ===========================================
+# Removes the systemd service and deployed PipeWire/WirePlumber configs.
+# Does NOT delete the repo itself, config.yaml, or recordings/logs - it
+# only undoes what install.sh set up outside the repo. Run as your
+# normal user (not root) from anywhere; it calls sudo itself where needed.
 #
-set -e
+# Usage: bash scripts/uninstall.sh
 
-INSTALL_DIR="/opt/drivethru"
+set -euo pipefail
 
-echo "=== Drive-Thru Intercom Uninstaller ==="
-echo ""
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Error: Please run with sudo"
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Run this as your normal user, not root/sudo." >&2
     exit 1
 fi
 
-# Confirmation
-read -p "This will remove all Drive-Thru Intercom files. Continue? [y/N] " -n 1 -r
+echo "=== Drive-Thru Intercom Uninstaller ==="
+echo "This removes the systemd service and deployed PipeWire configs."
+echo "Your repo, config.yaml, recordings, and logs are left untouched."
+echo
+read -p "Continue? [y/N] " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Uninstall cancelled."
+    echo "Cancelled."
     exit 0
 fi
 
-echo ""
-echo "[1/5] Stopping services..."
-systemctl stop drivethru-server.service 2>/dev/null || true
-systemctl disable drivethru-server.service 2>/dev/null || true
-rm -f /etc/systemd/system/drivethru-server.service 2>/dev/null || true
-systemctl daemon-reload
+echo
+echo "[1/3] Stopping and removing systemd services..."
+systemctl --user stop drivethru.service 2>/dev/null || true
+systemctl --user disable drivethru.service 2>/dev/null || true
+systemctl --user stop drivethru-gui.service 2>/dev/null || true
+systemctl --user disable drivethru-gui.service 2>/dev/null || true
+rm -f ~/.config/systemd/user/drivethru.service
+rm -f ~/.config/systemd/user/drivethru-gui.service
+systemctl --user daemon-reload
 
-echo "[2/5] Removing user service..."
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-rm -f "$REAL_HOME/.config/systemd/user/drivethru.service" 2>/dev/null || true
+echo "[2/3] Removing deployed PipeWire/WirePlumber configs..."
+rm -f ~/.config/pipewire/pipewire.conf.d/97-drivethru-deepfilter.conf
+rm -f ~/.config/pipewire/pipewire.conf.d/99-drivethru-aec.conf
+rm -f ~/.config/wireplumber/wireplumber.conf.d/99-drivethru-bluetooth.conf
 
-echo "[3/5] Removing PipeWire configuration..."
-rm -f "$REAL_HOME/.config/pipewire/pipewire.conf.d/99-drivethru-aec.conf" 2>/dev/null || true
-rm -f "$REAL_HOME/.config/wireplumber/wireplumber.conf.d/99-drivethru-bluetooth.conf" 2>/dev/null || true
+echo "[3/3] Restarting PipeWire to drop the removed configs..."
+systemctl --user restart pipewire pipewire-pulse wireplumber
 
-echo "[4/5] Removing autostart entry..."
-rm -f "$REAL_HOME/.config/autostart/drivethru-intercom.desktop" 2>/dev/null || true
-if id -u drivethru &>/dev/null; then
-    DRIVETHRU_HOME=$(getent passwd drivethru | cut -d: -f6)
-    rm -f "$DRIVETHRU_HOME/.config/autostart/drivethru-intercom.desktop" 2>/dev/null || true
-fi
-
-echo "[5/5] Removing installation directory..."
-rm -rf "$INSTALL_DIR"
-
-echo ""
-echo "=== Uninstall Complete ==="
-echo ""
-echo "The Drive-Thru Intercom system has been removed."
-echo ""
-echo "Note: The 'drivethru' user (if created for kiosk mode) was not removed."
-echo "To remove it manually: sudo userdel -r drivethru"
-echo ""
-echo "Restart PipeWire to complete cleanup:"
-echo "  systemctl --user restart pipewire wireplumber"
-echo ""
+echo
+echo "=== Uninstall complete ==="
+echo "Still on disk (delete manually if you want them gone too):"
+echo "  - This repo directory"
+echo "  - config.yaml (has your PIN and device settings)"
+echo "  - recordings/, logs/, drivethru.db"
+echo
+echo "fail2ban/ufw changes from scripts/harden.sh (if you ran it) are NOT"
+echo "undone by this script - they're host-level, not app-level."

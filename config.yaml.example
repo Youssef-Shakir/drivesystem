@@ -1,7 +1,14 @@
-# Drive-Thru Intercom System Configuration
-# -----------------------------------------
-# Edit these values to match your hardware setup.
-# Run `pw-cli list-objects Node` to find your device node names.
+# Drive-Thru Intercom System Configuration - TEMPLATE
+# -----------------------------------------------------
+# Copy this file to config.yaml (untracked - see .gitignore) and edit it
+# for your hardware. config.yaml is where your real PIN and device MACs
+# live; keeping it out of git means they never end up in a commit or a
+# public repo by accident.
+#
+#   cp config.yaml.example config.yaml
+#
+# Run `pw-cli list-objects Node` to find your device node names, and
+# `bluetoothctl list` for your Bluetooth adapter's MAC.
 
 serial:
   port: /dev/ttyUSB0
@@ -37,10 +44,10 @@ audio:
   outdoor_speaker: "dt_aec_sink"
 
   # Bluetooth headset sink (staff ears) - M890BT
-  headset_sink: "bluez_output.FC_58_FA_55_60_43.1"
+  headset_sink: "bluez_output.XX_XX_XX_XX_XX_XX.1"
 
   # Bluetooth headset source (staff mic) - M890BT
-  headset_source: "bluez_input.FC_58_FA_55_60_43.0"
+  headset_source: "bluez_input.XX_XX_XX_XX_XX_XX.0"
 
   # Which Bluetooth controller to use, by its own MAC (find with
   # `bluetoothctl list`) - NOT the headset's MAC above. Required as soon as
@@ -50,20 +57,21 @@ audio:
   # and working and every reconnect attempt still fails with
   # "Device ... not available" because it's silently targeting the wrong
   # adapter. 74:E5:F9:40:E5:8D is this box's built-in adapter.
-  bluetooth_adapter: "74:E5:F9:40:E5:8D"
+  bluetooth_adapter: "XX:XX:XX:XX:XX:XX"
 
   # Raw, pre-AEC/pre-filter outdoor mic hardware input - not part of the
   # live call path, used only by the tuning recorder (see recordings:
   # below) so it has an unprocessed reference to compare against the
   # filtered output.
-  raw_outdoor_mic: "alsa_input.usb-Shenzhen_Jiayz_Photo_Industrial_Co._Ltd_MV-Mixer-00.analog-stereo"
+  raw_outdoor_mic: "alsa_input.CHANGE_ME"
 
-  # Default volumes (0.0 - 1.5, where 1.0 = 100%)
+  # Default volumes (0.0 - 1.5, where 1.0 = 100%) - tune these from the
+  # dashboard once running; it writes the values you pick back here.
   default_volumes:
-    outdoor_mic: 1.17  # bumped from 1.0 - customer's voice was coming through quiet
-    outdoor_speaker: 1.05
-    headset: 1.18      # staff's ears only (what plays into the headset)
-    indoor_mic: 0.86    # staff's mic only (what the headset picks up from staff)
+    outdoor_mic: 1.0
+    outdoor_speaker: 0.8
+    headset: 1.0      # staff's ears only (what plays into the headset)
+    indoor_mic: 1.0    # staff's mic only (what the headset picks up from staff)
 
   # Audio mode: "full_duplex" or "ptt" (push-to-talk)
   default_mode: "full_duplex"
@@ -102,7 +110,9 @@ recording:
 security:
   # PIN required to open the dashboard - a shared-terminal deterrent, not
   # a real security boundary. Keep this system off the public internet.
-  pin: "2620"
+  # Pick your own numeric PIN here - this file is a template, don't leave
+  # CHANGE_ME in your real config.yaml.
+  pin: "CHANGE_ME"
 
 server:
   host: "0.0.0.0"

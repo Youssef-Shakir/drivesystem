@@ -1,11 +1,31 @@
 """Configuration loader for the drive-thru intercom system."""
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
+
+# Never used as a real value - if reload() ever sees this in security.pin
+# it means config.yaml still has the unedited template value in it, which
+# is worth a loud warning (silently running with a PIN of "CHANGE_ME"
+# defeats the whole point of it).
+_TEMPLATE_PIN_PLACEHOLDER = "CHANGE_ME"
+
+
+class ConfigMissingError(RuntimeError):
+    """Raised when config.yaml doesn't exist - config.yaml is gitignored
+    on purpose (see .gitignore and README's Security section: it holds
+    the dashboard PIN and this site's real device MACs, which must never
+    end up in a commit), so a fresh checkout never has one and needs an
+    explicit nudge rather than silently running on empty defaults - the
+    empty-defaults path used to fall back to a PIN value ("2620") that
+    shipped in this repo's git history for months, which is exactly the
+    kind of silent-insecure-default this now refuses to do."""
 
 
 class Config:
@@ -22,11 +42,23 @@ class Config:
 
     def reload(self) -> None:
         """Reload configuration from disk."""
-        if self._config_path.exists():
-            with open(self._config_path, "r") as f:
-                self._data = yaml.safe_load(f) or {}
-        else:
-            self._data = {}
+        if not self._config_path.exists():
+            example = self._config_path.with_name(self._config_path.name + ".example")
+            raise ConfigMissingError(
+                f"{self._config_path} not found. Copy {example.name} to "
+                f"{self._config_path.name} and edit it for this machine's "
+                f"hardware/PIN before starting the server: "
+                f"cp {example} {self._config_path}"
+            )
+        with open(self._config_path, "r") as f:
+            self._data = yaml.safe_load(f) or {}
+
+        pin = self._data.get("security", {}).get("pin")
+        if pin == _TEMPLATE_PIN_PLACEHOLDER:
+            logger.warning(
+                f"security.pin in {self._config_path} is still the template "
+                f"placeholder ({_TEMPLATE_PIN_PLACEHOLDER!r}) - set a real PIN."
+            )
 
     # Serial settings
     @property
@@ -254,7 +286,13 @@ class Config:
     # Security
     @property
     def dashboard_pin(self) -> str:
-        return str(self._data.get("security", {}).get("pin", "2620"))
+        # No fallback to a hardcoded value on purpose - this repo shipped
+        # "2620" as that fallback for months, in a public GitHub repo, so
+        # treat it as burned rather than reuse it as a "safe" default.
+        # reload() already guarantees config.yaml exists and warns if this
+        # key is still the template placeholder; an actually-missing key
+        # here means a hand-edited config.yaml dropped it entirely.
+        return str(self._data.get("security", {}).get("pin", _TEMPLATE_PIN_PLACEHOLDER))
 
     # Tuning recorder
     @property

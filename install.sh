@@ -1,168 +1,172 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Drive-Thru Intercom System Installer
-# For Ubuntu 24.04 LTS
+# Drive-Thru Intercom System - Installer
+# =========================================
+# Installs IN PLACE, wherever this repo is checked out (no copying to
+# /opt or elsewhere) - that's how the reference deployment actually runs:
+# a per-user systemd service pointed straight at the cloned repo.
 #
-set -e
+# Usage:
+#   git clone <repo-url> ~/drivesystem
+#   cd ~/drivesystem
+#   ./install.sh
+#
+# Run as your normal user, NOT root/sudo - it calls sudo itself for the
+# few steps that need it (apt install, adding you to hardware groups,
+# enabling linger) and asks for your password interactively at that
+# point, same as running any of those commands by hand.
+#
+# What this does, in order:
+#   1. Installs system packages (Python, PipeWire/WirePlumber, Bluetooth,
+#      ffmpeg).
+#   2. Creates a Python venv in .venv/ and installs requirements.txt.
+#   3. Copies config.yaml.example -> config.yaml if you don't have one
+#      yet (never overwrites an existing config.yaml).
+#   4. Deploys the PipeWire/WirePlumber configs from pipewire/ into
+#      ~/.config/, rewriting the LADSPA plugin's absolute path to match
+#      wherever THIS clone actually lives.
+#   5. Installs the systemd --user service, same path-rewrite, enables
+#      it, and enables linger so it survives a reboot with nobody logged
+#      in (this box is headless).
+#   6. Adds you to the audio/dialout/plugdev groups (mic+speaker access,
+#      the ESP32 serial port, and Bluetooth) if you aren't already.
+#
+# Does NOT touch firewall/SSH hardening (see scripts/harden.sh for that -
+# separate on purpose, since it's a host-level decision, not part of
+# getting the app running) and does NOT pick your PIN or device names for
+# you - those are yours to set in config.yaml, see README.md.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="/opt/drivethru"
-VENV_DIR="$INSTALL_DIR/venv"
+set -euo pipefail
 
-echo "=============================================="
-echo "  Drive-Thru Intercom System Installer"
-echo "=============================================="
-echo ""
-echo "Source: $SCRIPT_DIR"
-echo "Target: $INSTALL_DIR"
-echo ""
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Error: Please run with sudo"
-    echo "Usage: sudo ./install.sh"
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Run this as your normal user, not root/sudo - it calls sudo itself where needed." >&2
     exit 1
 fi
 
-# Get the actual user (not root)
-REAL_USER="${SUDO_USER:-$USER}"
-echo "Installing for user: $REAL_USER"
-echo ""
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$REPO_DIR/.venv"
+PYTHON_BIN="python3.11"
 
-# Confirmation
-read -p "Continue with installation? [y/N] " -n 1 -r
+echo "=================================================="
+echo "  Drive-Thru Intercom System - Installer"
+echo "=================================================="
+echo "Installing in place at: $REPO_DIR"
+echo
+
+read -p "Continue? [y/N] " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Installation cancelled."
+    echo "Cancelled."
     exit 0
 fi
 
-echo ""
-echo "[1/9] Installing system dependencies..."
-apt-get update
-apt-get install -y \
-    python3.12 \
-    python3.12-venv \
-    python3-pip \
-    pipewire \
-    pipewire-audio \
-    wireplumber \
-    libpipewire-0.3-modules \
-    bluez \
-    bluez-tools \
-    ffmpeg \
-    git \
-    unclutter
+# --- 1. System packages --------------------------------------------------
+echo
+echo "[1/6] Installing system packages (will ask for your sudo password)..."
+sudo apt-get update -qq
+sudo apt-get install -y \
+    "$PYTHON_BIN" "${PYTHON_BIN}-venv" python3-pip \
+    pipewire pipewire-audio-client-libraries wireplumber libspa-0.2-bluetooth \
+    bluez bluez-tools \
+    ffmpeg git
 
-echo ""
-echo "[2/9] Creating installation directory..."
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/server/assets"
-mkdir -p "$INSTALL_DIR/gui"
-mkdir -p "$INSTALL_DIR/scripts"
-mkdir -p "$INSTALL_DIR/pipewire"
-mkdir -p "$INSTALL_DIR/systemd"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "ERROR: $PYTHON_BIN not available after install - check your Ubuntu version" \
+         "(this was built/tested on 22.04 'jammy'; a newer release may only ship a" \
+         "different python3.x - if so, edit PYTHON_BIN at the top of this script)." >&2
+    exit 1
+fi
 
-echo ""
-echo "[3/9] Copying application files..."
-# Server
-cp -r "$SCRIPT_DIR/server/"* "$INSTALL_DIR/server/"
-# GUI
-cp -r "$SCRIPT_DIR/gui/"* "$INSTALL_DIR/gui/"
-# Scripts
-cp -r "$SCRIPT_DIR/scripts/"* "$INSTALL_DIR/scripts/"
-# PipeWire configs
-cp -r "$SCRIPT_DIR/pipewire/"* "$INSTALL_DIR/pipewire/"
-# Systemd service
-cp -r "$SCRIPT_DIR/systemd/"* "$INSTALL_DIR/systemd/"
-# Config
-cp "$SCRIPT_DIR/config.yaml" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+# --- 2. Python venv --------------------------------------------------------
+echo
+echo "[2/6] Creating Python virtual environment..."
+if [ ! -d "$VENV_DIR" ]; then
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+else
+    echo "    .venv already exists, reusing it."
+fi
+"$VENV_DIR/bin/pip" install --upgrade pip -q
+"$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt" -q
 
-echo ""
-echo "[4/9] Creating Python virtual environment..."
-python3.12 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
+# --- 3. config.yaml --------------------------------------------------------
+echo
+echo "[3/6] Setting up config.yaml..."
+if [ -f "$REPO_DIR/config.yaml" ]; then
+    echo "    config.yaml already exists - leaving it untouched."
+else
+    cp "$REPO_DIR/config.yaml.example" "$REPO_DIR/config.yaml"
+    chmod 600 "$REPO_DIR/config.yaml"
+    echo "    Created config.yaml from the template - YOU MUST EDIT IT before"
+    echo "    starting the server (PIN, device names, Bluetooth adapter MAC)."
+    echo "    See README.md 'Configure the Server'."
+fi
 
-echo ""
-echo "[5/9] Installing Python dependencies..."
-pip install --upgrade pip
-pip install -r "$INSTALL_DIR/requirements.txt"
-deactivate
+# --- 4. PipeWire / WirePlumber configs -------------------------------------
+echo
+echo "[4/6] Deploying PipeWire/WirePlumber configs..."
+mkdir -p ~/.config/pipewire/pipewire.conf.d
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
 
-echo ""
-echo "[6/9] Installing PipeWire configuration..."
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+# 97/99-*.conf (not the -bluetooth one, that's WirePlumber's directory, and
+# not .disabled ones) go to pipewire.conf.d. The plugin= line inside the
+# DeepFilterNet config has an absolute path baked in - rewrite it to match
+# THIS clone's actual location so it isn't silently still pointing at
+# wherever the original reference install lived.
+for conf in "$REPO_DIR"/pipewire/9*-drivethru-*.conf; do
+    name="$(basename "$conf")"
+    [[ "$name" == *bluetooth* ]] && continue
+    sed "s|plugin = \"[^\"]*/pipewire/plugins/|plugin = \"$REPO_DIR/pipewire/plugins/|" \
+        "$conf" > ~/.config/pipewire/pipewire.conf.d/"$name"
+done
+cp "$REPO_DIR/pipewire/99-drivethru-bluetooth.conf" ~/.config/wireplumber/wireplumber.conf.d/
+echo "    Deployed. Restart PipeWire after editing device names in config.yaml:"
+echo "      systemctl --user restart pipewire pipewire-pulse wireplumber"
 
-# Create user's PipeWire config directory
-mkdir -p "$REAL_HOME/.config/pipewire/pipewire.conf.d"
-mkdir -p "$REAL_HOME/.config/wireplumber/wireplumber.conf.d"
+# --- 5. systemd service -----------------------------------------------------
+echo
+echo "[5/6] Installing systemd user service..."
+mkdir -p ~/.config/systemd/user
+sed -e "s|WorkingDirectory=.*|WorkingDirectory=$REPO_DIR|" \
+    -e "s|ExecStart=.*python|ExecStart=$VENV_DIR/bin/python|" \
+    "$REPO_DIR/systemd/drivethru.service" > ~/.config/systemd/user/drivethru.service
 
-# Copy AEC configuration
-cp "$INSTALL_DIR/pipewire/99-drivethru-aec.conf" \
-   "$REAL_HOME/.config/pipewire/pipewire.conf.d/"
+systemctl --user daemon-reload
+systemctl --user enable drivethru.service
+sudo loginctl enable-linger "$USER"
+echo "    Installed and enabled (not started yet - config.yaml needs your edits first)."
 
-# Copy Bluetooth mSBC configuration
-cp "$INSTALL_DIR/pipewire/99-drivethru-bluetooth.conf" \
-   "$REAL_HOME/.config/wireplumber/wireplumber.conf.d/"
+# --- 6. Hardware group access -----------------------------------------------
+echo
+echo "[6/6] Checking group membership (audio, dialout, plugdev)..."
+NEEDED_GROUPS=(audio dialout plugdev)
+MISSING=()
+for g in "${NEEDED_GROUPS[@]}"; do
+    id -nG "$USER" | grep -qw "$g" || MISSING+=("$g")
+done
+if [ ${#MISSING[@]} -gt 0 ]; then
+    sudo usermod -aG "$(IFS=,; echo "${MISSING[*]}")" "$USER"
+    echo "    Added to: ${MISSING[*]} - LOG OUT AND BACK IN for this to take effect."
+else
+    echo "    Already in all required groups."
+fi
 
-# Set ownership
-chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/pipewire"
-chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/wireplumber"
-
-echo ""
-echo "[7/9] Setting up user systemd service..."
-mkdir -p "$REAL_HOME/.config/systemd/user"
-cp "$INSTALL_DIR/systemd/drivethru.service" "$REAL_HOME/.config/systemd/user/"
-chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/systemd"
-
-echo ""
-echo "[8/9] Adding user to required groups..."
-usermod -aG audio,dialout,plugdev "$REAL_USER"
-
-echo ""
-echo "[9/9] Setting permissions..."
-chown -R "$REAL_USER:$REAL_USER" "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/scripts/"*.sh
-chmod +x "$INSTALL_DIR/scripts/"*.py
-
-echo ""
-echo "=============================================="
-echo "  Installation Complete!"
-echo "=============================================="
-echo ""
-echo "Files installed to: $INSTALL_DIR"
-echo ""
-echo "Next steps:"
-echo ""
-echo "1. Connect your hardware:"
-echo "   - Behringer UMC202HD USB audio interface"
-echo "   - RODE NTG3 microphone"
-echo "   - Bluetooth headset (pair via Settings > Bluetooth)"
-echo "   - ESP32 sensor via USB serial"
-echo ""
-echo "2. Update configuration:"
-echo "   sudo nano $INSTALL_DIR/config.yaml"
-echo "   - Set the correct serial port (e.g., /dev/ttyUSB0)"
-echo "   - Verify audio device names"
-echo ""
-echo "3. Restart PipeWire to load AEC config:"
-echo "   systemctl --user restart pipewire wireplumber"
-echo ""
-echo "4. Start the application:"
-echo ""
-echo "   Option A - GUI Application:"
-echo "   $VENV_DIR/bin/python $INSTALL_DIR/gui/main.py"
-echo ""
-echo "   Option B - Web Dashboard:"
-echo "   cd $INSTALL_DIR/server && $VENV_DIR/bin/python -m uvicorn main:app"
-echo "   Then open http://localhost:8000 in browser"
-echo ""
-echo "   Option C - Background Service:"
-echo "   systemctl --user enable --now drivethru.service"
-echo ""
-echo "5. For dedicated kiosk mode (optional):"
-echo "   sudo $INSTALL_DIR/scripts/setup-kiosk.sh"
-echo ""
-echo "For help: https://github.com/your-repo/drivethru-intercom"
-echo ""
+echo
+echo "=================================================="
+echo "  Install steps done. Before starting the server:"
+echo "=================================================="
+echo "  1. Edit config.yaml - PIN, serial port, device names, Bluetooth"
+echo "     adapter MAC. Find device names with:"
+echo "       pw-cli list-objects Node | grep -E 'node.name|node.description'"
+echo "       bluetoothctl list"
+echo "  2. Edit the deployed PipeWire configs' device names to match:"
+echo "       ~/.config/pipewire/pipewire.conf.d/99-drivethru-aec.conf"
+echo "  3. Pair your Bluetooth headset: bluetoothctl (scan, pair, trust, connect)"
+echo "  4. Restart PipeWire: systemctl --user restart pipewire pipewire-pulse wireplumber"
+echo "  5. Start the server: systemctl --user start drivethru.service"
+echo "  6. Open http://<this-machine-ip>:8080 and log in with your PIN"
+echo
+echo "  Optional but recommended: sudo bash scripts/harden.sh"
+echo "  (fail2ban + firewall - see README.md 'Security')"
+echo
+echo "  Full details: README.md"
+echo
