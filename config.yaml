@@ -60,8 +60,8 @@ audio:
 
   # Default volumes (0.0 - 1.5, where 1.0 = 100%)
   default_volumes:
-    outdoor_mic: 1.05  # bumped from 1.0 - customer's voice was coming through quiet
-    outdoor_speaker: 0.65
+    outdoor_mic: 1.17  # bumped from 1.0 - customer's voice was coming through quiet
+    outdoor_speaker: 1.05
     headset: 1.18      # staff's ears only (what plays into the headset)
     indoor_mic: 0.86    # staff's mic only (what the headset picks up from staff)
 

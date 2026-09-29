@@ -420,19 +420,37 @@ def _get_current_profile_name(device_id: int) -> Optional[str]:
     return None
 
 
-def _get_pipewire_device_id(mac: str) -> Optional[int]:
-    """Find the PipeWire device (card) id for a bluez MAC address."""
-    try:
-        result = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=5)
-        nodes = json.loads(result.stdout)
-        for obj in nodes:
-            if obj.get("type") != "PipeWire:Interface:Device":
+def _get_pipewire_device_id(mac: str, retries: int = 3) -> Optional[int]:
+    """
+    Find the PipeWire device (card) id for a bluez MAC address.
+
+    pw-dump's output can occasionally fail to parse as a single JSON
+    document ("Extra data" from json.loads) when queried right as the
+    graph is actively changing - observed live right after a Bluetooth
+    connect/profile-switch, exactly the moment this function is most
+    needed. A single failed parse used to mean force_headset_profile()
+    silently gave up for that call, delaying the headset-head-unit
+    switch and very plausibly contributing to the connect-then-drop
+    flapping this was chasing. Retrying a couple of times with a short
+    pause is cheap insurance against that transient race, regardless of
+    its exact cause.
+    """
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=5)
+            nodes = json.loads(result.stdout)
+            for obj in nodes:
+                if obj.get("type") != "PipeWire:Interface:Device":
+                    continue
+                props = obj.get("info", {}).get("props", {})
+                if props.get("api.bluez5.address", "").upper() == mac.upper():
+                    return obj.get("id")
+            return None  # parsed fine, device just isn't there yet
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(0.3)
                 continue
-            props = obj.get("info", {}).get("props", {})
-            if props.get("api.bluez5.address", "").upper() == mac.upper():
-                return obj.get("id")
-    except Exception as e:
-        logger.warning(f"Failed to find PipeWire device for {mac}: {e}")
+            logger.warning(f"Failed to find PipeWire device for {mac}: {e}")
     return None
 
 
